@@ -17,7 +17,7 @@ Thay vì phải ngồi copy-paste từng dòng, tool này sử dụng AI (Gemini
 ## ✨ Tính năng mới (v1.4.0)
 
 | Tính năng | Mô tả |
-|-----------|-------|
+| :--- | :--- |
 | 📊 **Outline Review** | Xem AI phân tích tài liệu trước khi tạo thẻ. Biết trước số lượng thẻ dự kiến. |
 | ✏️ **Edit Mode** | Chỉnh sửa nội dung thẻ trước khi Sync vào Anki. |
 | 🛡️ **History** | Tự động lưu thẻ vào localStorage. Refresh trang không mất dữ liệu. |
@@ -61,7 +61,7 @@ Anh em Clone về chạy trên máy cho an toàn nhé (API Key lưu trên trình
 
 ## 🔄 Quy trình sử dụng
 
-```
+```text
 1. Nhập API Key Gemini
 2. Upload file hoặc Paste text
 3. (Optional) Nhập Topic Focus
