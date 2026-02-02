@@ -76,17 +76,13 @@ Vì đây là tool cá nhân (để bảo mật API Key của bạn), nên cách
 
 ### Bước 2: Tải code về
 
-```bash
-git clone https://github.com/tranhoait123/Medical-Master-Anki.git
-cd Medical-Master-Anki
-```
+    git clone https://github.com/tranhoait123/Medical-Master-Anki.git
+    cd Medical-Master-Anki
 
 ### Bước 3: Cài thư viện & Chạy
 
-```bash
-npm install
-npm run dev
-```
+    npm install
+    npm run dev
 
 Xong! Mở trình duyệt tại `http://localhost:5173` và bắt đầu thôi.
 
