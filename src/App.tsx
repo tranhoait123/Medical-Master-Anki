@@ -1,9 +1,9 @@
-import { useState, useRef, useEffect, useCallback } from "react";
+import { useState, useRef, useEffect, useCallback, useMemo } from "react";
 import { GeminiService } from "./lib/gemini";
 import { fileToGenerativePart } from "./lib/file-processing";
 import { AnkiConnectService } from "./lib/anki";
 import { PROMPTS } from "./prompts";
-import { Upload, FileText, CheckCircle, Loader2, Download, Play, Settings, AlertCircle, RefreshCw, Trash2, Sun, Moon, X, BarChart3 } from "lucide-react";
+import { Upload, FileText, CheckCircle, Loader2, Download, Play, Settings, AlertCircle, RefreshCw, Trash2, Sun, Moon, X, BarChart3, Search } from "lucide-react";
 import { cn } from "./lib/utils";
 import { motion, AnimatePresence } from "framer-motion";
 
@@ -55,6 +55,10 @@ export default function App() {
   // Phase 2 Features: New State
   const [viewMode, setViewMode] = useState<"raw" | "preview">("preview");
   const [flippedCards, setFlippedCards] = useState<Set<number>>(new Set());
+
+  // Phase 3 Features: New State
+  const [searchQuery, setSearchQuery] = useState("");
+  const [exportFormat, setExportFormat] = useState<"csv" | "md" | "json">("csv");
 
   // Scroll to bottom of logs
   const logsEndRef = useRef<HTMLDivElement>(null);
@@ -284,7 +288,67 @@ export default function App() {
     });
   }, []);
 
+  // --- FILTERED CARDS (Search) ---
+  const filteredCards = useMemo(() => {
+    const allCards = parseAllCards();
+    if (!searchQuery.trim()) return allCards;
 
+    const query = searchQuery.toLowerCase();
+    return allCards.filter(card =>
+      card.question.toLowerCase().includes(query) ||
+      card.answer.toLowerCase().includes(query)
+    );
+  }, [parseAllCards, searchQuery]);
+
+  // --- EXPORT HANDLERS ---
+  const handleExport = useCallback(() => {
+    let content = "";
+    let filename = `anki_export_${file?.name || "data"}`;
+    let mimeType = "text/plain";
+
+    if (exportFormat === "csv") {
+      content = generatedCards.join("\n");
+      filename += ".csv";
+      mimeType = "text/csv;charset=utf-8;";
+    } else if (exportFormat === "md") {
+      // Markdown format
+      const cards = parseAllCards();
+      content = "# Anki Flashcards Export\n\n";
+      content += `> Generated ${new Date().toLocaleDateString()} • ${cards.length} cards\n\n---\n\n`;
+      cards.forEach((card, idx) => {
+        content += `## Card ${idx + 1}\n\n`;
+        content += `**Q:** ${card.question}\n\n`;
+        content += `**A:** ${card.answer}\n\n---\n\n`;
+      });
+      filename += ".md";
+      mimeType = "text/markdown;charset=utf-8;";
+    } else if (exportFormat === "json") {
+      // JSON format
+      const cards = parseAllCards();
+      content = JSON.stringify({
+        exportDate: new Date().toISOString(),
+        totalCards: cards.length,
+        cards: cards.map((c, i) => ({
+          id: i + 1,
+          question: c.question,
+          answer: c.answer
+        }))
+      }, null, 2);
+      filename += ".json";
+      mimeType = "application/json;charset=utf-8;";
+    }
+
+    const blob = new Blob([content], { type: mimeType });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = filename;
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    URL.revokeObjectURL(url);
+    addToast(`Exported as ${exportFormat.toUpperCase()}!`, "success");
+  }, [exportFormat, generatedCards, file, parseAllCards, addToast]);
 
   const addLog = (msg: string) => setLogs((prev) => [...prev, msg]);
 
@@ -1022,15 +1086,25 @@ export default function App() {
                   {syncStatus === "syncing" ? <Loader2 className="w-4 h-4 animate-spin" /> : <RefreshCw className="w-4 h-4" />}
                   {syncStatus === "success" ? "Synced!" : "Sync to Anki"}
                 </button>
-                <button
-                  onClick={() => {
-                    handleDownload();
-                    addToast("CSV downloaded!", "success");
-                  }}
-                  className="bg-primary hover:bg-primary/90 text-primary-foreground px-4 py-2 rounded-md font-medium flex items-center gap-2 transition-colors shadow-sm"
-                >
-                  <Download className="w-4 h-4" /> Download .csv
-                </button>
+
+                {/* Export Format Selector */}
+                <div className="flex items-center gap-0 bg-card border border-border rounded-md overflow-hidden">
+                  <select
+                    value={exportFormat}
+                    onChange={(e) => setExportFormat(e.target.value as "csv" | "md" | "json")}
+                    className="bg-transparent text-sm px-2 py-2 outline-none cursor-pointer"
+                  >
+                    <option value="csv">CSV</option>
+                    <option value="md">Markdown</option>
+                    <option value="json">JSON</option>
+                  </select>
+                  <button
+                    onClick={handleExport}
+                    className="bg-primary hover:bg-primary/90 text-primary-foreground px-4 py-2 font-medium flex items-center gap-2 transition-colors"
+                  >
+                    <Download className="w-4 h-4" /> Export
+                  </button>
+                </div>
               </div>
             </div>
 
@@ -1105,11 +1179,37 @@ export default function App() {
               </div>
             </div>
 
+            {/* Search Bar */}
+            {viewMode === "preview" && (
+              <div className="relative">
+                <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
+                <input
+                  type="text"
+                  value={searchQuery}
+                  onChange={(e) => setSearchQuery(e.target.value)}
+                  placeholder="Search cards by question or answer..."
+                  className="w-full pl-10 pr-4 py-2 rounded-lg bg-input border border-border focus:ring-2 focus:ring-primary outline-none transition-all text-sm"
+                />
+                {searchQuery && (
+                  <button
+                    onClick={() => setSearchQuery("")}
+                    className="absolute right-3 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground"
+                  >
+                    <X className="w-4 h-4" />
+                  </button>
+                )}
+              </div>
+            )}
+
             {/* Card Display Area */}
             {viewMode === "preview" ? (
               /* Preview Mode - FlipCards */
               <div className="grid grid-cols-1 md:grid-cols-2 gap-4 max-h-[600px] overflow-y-auto pr-2 custom-scrollbar">
-                {parseAllCards().map((card, idx) => (
+                {filteredCards.length === 0 ? (
+                  <div className="col-span-2 text-center py-12 text-muted-foreground">
+                    {searchQuery ? "No cards match your search." : "No cards generated yet."}
+                  </div>
+                ) : filteredCards.map((card, idx) => (
                   <motion.div
                     key={`${card.chunkIdx}-${card.cardIdx}`}
                     className="relative"
