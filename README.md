@@ -25,7 +25,7 @@ Công cụ này không chỉ là một cái "máy copy paste". Nó được tíc
 
 ---
 
-## ✨ Tính Năng Nổi Bật (v1.5.0)
+## ✨ Tính Năng Nổi Bật (v1.6.0)
 
 ### 1. 🧠 Gemini 3.0 Flash Power
 
@@ -55,7 +55,12 @@ Thay vì phó mặc cho AI "muốn làm gì thì làm", bạn nắm quyền ki�
 
 * **Edit Mode:** Sửa lỗi chính tả, thêm ghi chú cá nhân ngay trước khi tạo thẻ.
 * **History:** Tự động lưu thẻ vào bộ nhớ trình duyệt. Lỡ tay tắt tab? Không sao, mở lại vẫn còn nguyên.
-* **AnkiConnect:** Bấm một nút, thẻ bay thẳng vào bộ bài (Deck) Anki của bạn. Không cần file .txt, không cần Excel.
+* **AnkiConnect:** Bấm một nút, thẻ bay thẳng vào bộ bài (Deck) Anki của bạn. Không cần import thủ công.
+
+### 5. 📄 CSV Export & Smart Retry
+
+* **CSV Format:** Xuất thẻ ra định dạng CSV chuẩn (`"Câu hỏi","Câu trả lời"`) - dễ dàng import vào Anki hoặc mở trong Excel.
+* **Auto Retry (Paraphrase Mode):** Khi chunk bị chặn bởi AI Safety Filter (Recitation), hệ thống tự động thử lại với prompt yêu cầu AI diễn đạt lại (paraphrase) - không mất nội dung.
 
 ---
 
@@ -116,7 +121,8 @@ Xong! Mở trình duyệt tại `http://localhost:5173` và bắt đầu thôi.
 ### 5. Hậu kỳ & Xuất xưởng 📦
 
 * Đọc lướt qua các thẻ. Bấm vào icon ✏️ để sửa nếu cần.
-* Bấm **Sync to Anki**. Bùm! Xong.
+* Bấm **Download .csv** để tải file CSV về máy.
+* Hoặc bấm **Sync to Anki** để đẩy thẳng vào Anki.
 
 ---
 
@@ -138,12 +144,17 @@ Xong! Mở trình duyệt tại `http://localhost:5173` và bắt đầu thôi.
 
 * A: Không. Mọi thứ diễn ra trên trình duyệt của bạn và gửi trực tiếp đến Google Gemini API. Mình (tác giả) không lưu bất kỳ cái gì.
 
+**Q: Tại sao một số chunk bị "blocked" và "Retrying with paraphrase mode"?**
+
+* A: Gemini có cơ chế bảo vệ bản quyền (Recitation Filter). Khi AI thấy output quá giống tài liệu gốc (sách giáo khoa...), nó sẽ chặn. Tool tự động retry với prompt yêu cầu AI diễn đạt lại - vẫn giữ đủ ý nhưng không copy nguyên văn.
+
 ---
 
 ## 📝 Changelog
 
 | Version | Ngày | Thay đổi nổi bật |
 | :--- | :--- | :--- |
+| **v1.6.0** | 02/2026 | CSV Export, Auto Retry (Paraphrase Mode) khi bị Recitation Filter. |
 | **v1.5.0** | 02/2026 | Auto-Refresh Cache, Selective Generation, UI Polish. |
 | **v1.4.0** | 02/2026 | Explicit Context Caching (Tiết kiệm 90% token). |
 | **v1.3.0** | 02/2026 | Outline Review & Card Estimation. |
