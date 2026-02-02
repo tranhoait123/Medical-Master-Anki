@@ -212,9 +212,31 @@ export default function App() {
             ? `\n\n=== PREVIOUSLY GENERATED CONCEPTS ===\n(Do NOT create cards for these concepts again to avoid duplicates):\n- ${conceptHistory.slice(-50).join("\n- ")}`
             : "";
 
-          const cardOutput = await gemini.generateWithCache(
-            `USER COMMAND: ${cmd}\n\nCRITICAL INSTRUCTION: Analyze the cached document ONLY. Do NOT use external knowledge.${historyText}`
-          );
+          let cardOutput = "";
+          let retried = false;
+
+          try {
+            // First attempt: normal prompt
+            cardOutput = await gemini.generateWithCache(
+              `USER COMMAND: ${cmd}\n\nCRITICAL INSTRUCTION: Analyze the cached document ONLY. Do NOT use external knowledge.${historyText}`
+            );
+          } catch {
+            // If blocked, retry with paraphrase prompt
+            addLog(`⚠️ Chunk ${i + 1} blocked. Retrying with paraphrase mode...`);
+            retried = true;
+
+            try {
+              cardOutput = await gemini.generateWithCache(
+                `USER COMMAND: ${cmd}\n\nIMPORTANT: Giải thích các khái niệm BẰNG LỜI CỦA BẠN (paraphrase). Không trích dẫn nguyên văn. Vẫn giữ đầy đủ thông tin nhưng diễn đạt lại theo cách khác. Output CSV format.${historyText}`
+              );
+              addLog(`✅ Chunk ${i + 1} recovered with paraphrase mode.`);
+            } catch (retryErr) {
+              // Both attempts failed, skip this chunk
+              console.error(`Chunk ${i + 1} failed both attempts`, retryErr);
+              addLog(`❌ Chunk ${i + 1} failed both attempts. Skipping...`);
+              continue;
+            }
+          }
 
           // Clean output: remove code blocks and extract only valid CSV lines
           const rawOutput = cardOutput.replace(/```(?:csv)?/gi, "").trim();
@@ -230,6 +252,9 @@ export default function App() {
           const cleanOutput = csvLines.join('\n');
           if (cleanOutput) {
             allCards.push(cleanOutput);
+            if (retried) {
+              addLog(`📝 Added ${csvLines.length} cards (paraphrased) from chunk ${i + 1}`);
+            }
           }
 
           // Extract Questions/Concepts from output to add to history
