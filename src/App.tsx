@@ -219,9 +219,12 @@ export default function App() {
           allCards.push(cleanOutput);
 
           // Extract Questions/Concepts from output to add to history
-          // Assuming format: Question <TAB> Answer
+          // Assuming format: "Question","Answer"
           const newQuestions = cleanOutput.split('\n')
-            .map(line => line.split('\t')[0])
+            .map(line => {
+              const match = line.match(/^"(.*)","(.*)"$/);
+              return match ? match[1] : "";
+            })
             .filter(q => q && q.length > 5);
 
           conceptHistory.push(...newQuestions);
@@ -257,10 +260,11 @@ export default function App() {
         const lines = chunk.split("\n");
         for (const line of lines) {
           if (!line.trim()) continue;
-          const parts = line.split("\t");
-          if (parts.length >= 2) {
-            const front = parts[0];
-            const back = parts.slice(1).join("\t"); // Join remainder just in case
+          // Parse CSV: "Front","Back"
+          const match = line.match(/^"(.*)","(.*)"$/);
+          if (match) {
+            const front = match[1].replace(/""/g, '"');
+            const back = match[2].replace(/""/g, '"');
             await ankiService.addNote(front, back);
             count++;
           }
@@ -277,11 +281,11 @@ export default function App() {
   };
 
   const handleDownload = () => {
-    const blob = new Blob([generatedCards.join("\n\n")], { type: "text/plain" });
+    const blob = new Blob([generatedCards.join("\n")], { type: "text/csv;charset=utf-8;" });
     const url = URL.createObjectURL(blob);
     const a = document.createElement("a");
     a.href = url;
-    a.download = `anki_export_${file?.name || "data"}.txt`;
+    a.download = `anki_export_${file?.name || "data"}.csv`;
     document.body.appendChild(a);
     a.click();
     document.body.removeChild(a);
@@ -609,7 +613,7 @@ export default function App() {
                   onClick={handleDownload}
                   className="bg-primary hover:bg-primary/90 text-primary-foreground px-4 py-2 rounded-md font-medium flex items-center gap-2 transition-colors shadow-sm"
                 >
-                  <Download className="w-4 h-4" /> Download .txt
+                  <Download className="w-4 h-4" /> Download .csv
                 </button>
               </div>
             </div>
@@ -617,32 +621,22 @@ export default function App() {
             {/* Editable Card List */}
             <div className="space-y-4 max-h-[600px] overflow-y-auto pr-2 custom-scrollbar">
               {generatedCards.map((card, idx) => {
-                const [q, a] = card.split("\t");
                 return (
                   <div key={idx} className="p-4 rounded-lg bg-muted/30 border border-border space-y-3 group relative">
                     <button
                       onClick={() => handleDeleteCard(idx)}
                       className="absolute top-2 right-2 opacity-0 group-hover:opacity-100 p-1 text-destructive hover:bg-destructive/10 rounded transition-all"
-                      title="Delete Card"
+                      title="Delete Chunk"
                     >
                       <Trash2 className="w-4 h-4" />
                     </button>
 
                     <div className="space-y-1">
-                      <label className="text-xs font-bold text-muted-foreground uppercase">Question (Front)</label>
+                      <label className="text-xs font-bold text-muted-foreground uppercase">CSV Content (Raw chunk)</label>
                       <textarea
-                        value={q || ""}
-                        onChange={(e) => handleCardUpdate(idx, `${e.target.value}\t${a || ""}`)}
-                        className="w-full p-2 bg-background border border-border rounded-md text-sm font-medium focus:ring-1 focus:ring-primary outline-none min-h-[60px]"
-                      />
-                    </div>
-
-                    <div className="space-y-1">
-                      <label className="text-xs font-bold text-muted-foreground uppercase">Answer (Back - HTML)</label>
-                      <textarea
-                        value={a || ""}
-                        onChange={(e) => handleCardUpdate(idx, `${q || ""}\t${e.target.value}`)}
-                        className="w-full p-2 bg-background border border-border rounded-md text-sm font-mono text-muted-foreground focus:ring-1 focus:ring-primary outline-none min-h-[100px]"
+                        value={card}
+                        onChange={(e) => handleCardUpdate(idx, e.target.value)}
+                        className="w-full p-2 bg-background border border-border rounded-md text-sm font-mono text-muted-foreground focus:ring-1 focus:ring-primary outline-none min-h-[150px]"
                       />
                     </div>
                   </div>
