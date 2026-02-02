@@ -52,7 +52,19 @@ export default function App() {
 
   useEffect(() => {
     if (generatedCards.length > 0) {
-      localStorage.setItem("anki-cards-history", JSON.stringify(generatedCards));
+      // Limit localStorage size to prevent overflow (~4MB limit, keep last 500 cards max)
+      const dataToSave = generatedCards.slice(-500);
+      try {
+        const jsonData = JSON.stringify(dataToSave);
+        if (jsonData.length < 4 * 1024 * 1024) { // 4MB limit
+          localStorage.setItem("anki-cards-history", jsonData);
+        } else {
+          console.warn("Data too large for localStorage, saving last 100 cards only");
+          localStorage.setItem("anki-cards-history", JSON.stringify(dataToSave.slice(-100)));
+        }
+      } catch (e) {
+        console.error("Failed to save to localStorage", e);
+      }
     }
   }, [generatedCards]);
 
@@ -234,6 +246,8 @@ export default function App() {
             retried = true;
 
             try {
+              // Add delay before retry to avoid rate limit
+              await delay(2000);
               cardOutput = await gemini.generateWithCache(
                 `USER COMMAND: ${cmd}\n\nIMPORTANT: Giải thích các khái niệm BẰNG LỜI CỦA BẠN (paraphrase). Không trích dẫn nguyên văn. Vẫn giữ đầy đủ thông tin nhưng diễn đạt lại theo cách khác. Output CSV format.${historyText}`
               );
@@ -293,6 +307,16 @@ export default function App() {
       setErrorMsg(msg || "An unknown error occurred.");
       setStatus("error");
       addLog(`❌ Error: ${msg}`);
+
+      // Cleanup cache on error
+      if (geminiRef.current?.hasCache()) {
+        try {
+          await geminiRef.current.deleteCache();
+          addLog("🧹 Cache cleaned up after error.");
+        } catch {
+          // Ignore cleanup errors
+        }
+      }
     }
   };
 
@@ -301,19 +325,51 @@ export default function App() {
       setSyncStatus("syncing");
       const ankiService = new AnkiConnectService(ankiUrl, deckName);
 
+      // Helper to parse CSV line properly (handles quotes inside content)
+      const parseCSVLine = (line: string): [string, string] | null => {
+        // Match: "content1","content2" where content can have escaped quotes ""
+        const trimmed = line.trim();
+        if (!trimmed.startsWith('"')) return null;
+
+        // Find the separator ","  by looking for "," pattern
+        let inQuote = false;
+        let separatorIndex = -1;
+        for (let i = 0; i < trimmed.length; i++) {
+          if (trimmed[i] === '"') {
+            if (trimmed[i + 1] === '"') {
+              i++; // Skip escaped quote
+            } else {
+              inQuote = !inQuote;
+            }
+          } else if (trimmed[i] === ',' && !inQuote && trimmed[i - 1] === '"') {
+            separatorIndex = i;
+            break;
+          }
+        }
+
+        if (separatorIndex === -1) return null;
+
+        const front = trimmed.slice(1, separatorIndex - 1).replace(/""/g, '"');
+        const back = trimmed.slice(separatorIndex + 2, -1).replace(/""/g, '"');
+        return [front, back];
+      };
+
+      // Rate limit helper
+      const delay = (ms: number) => new Promise(resolve => setTimeout(resolve, ms));
+
       // Parse cards
       let count = 0;
       for (const chunk of generatedCards) {
         const lines = chunk.split("\n");
         for (const line of lines) {
           if (!line.trim()) continue;
-          // Parse CSV: "Front","Back"
-          const match = line.match(/^"(.*)","(.*)"$/);
-          if (match) {
-            const front = match[1].replace(/""/g, '"');
-            const back = match[2].replace(/""/g, '"');
+          const parsed = parseCSVLine(line);
+          if (parsed) {
+            const [front, back] = parsed;
             await ankiService.addNote(front, back);
             count++;
+            // Rate limit: wait 100ms between each card to avoid overwhelming AnkiConnect
+            await delay(100);
           }
         }
       }
@@ -336,6 +392,8 @@ export default function App() {
     document.body.appendChild(a);
     a.click();
     document.body.removeChild(a);
+    // Fix memory leak: revoke the object URL after download
+    URL.revokeObjectURL(url);
   };
 
   return (
