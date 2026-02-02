@@ -3,7 +3,7 @@ import { GeminiService } from "./lib/gemini";
 import { fileToGenerativePart } from "./lib/file-processing";
 import { AnkiConnectService } from "./lib/anki";
 import { PROMPTS } from "./prompts";
-import { Upload, FileText, CheckCircle, Loader2, Download, Play, Settings, AlertCircle, RefreshCw } from "lucide-react";
+import { Upload, FileText, CheckCircle, Loader2, Download, Play, Settings, AlertCircle, RefreshCw, Trash2 } from "lucide-react";
 import { cn } from "./lib/utils";
 import { motion, AnimatePresence } from "framer-motion";
 
@@ -25,12 +25,52 @@ export default function App() {
   const [ankiUrl, setAnkiUrl] = useState("http://127.0.0.1:8765");
   const [deckName, setDeckName] = useState("Default");
 
-
   // Scroll to bottom of logs
   const logsEndRef = useRef<HTMLDivElement>(null);
   useEffect(() => {
     logsEndRef.current?.scrollIntoView({ behavior: "smooth" });
   }, [logs]);
+
+
+  // --- HISTORY & PERSISTENCE ---
+  useEffect(() => {
+    const saved = localStorage.getItem("anki-cards-history");
+    if (saved) {
+      try {
+        setGeneratedCards(JSON.parse(saved));
+      } catch (e) {
+        console.error("Failed to load history", e);
+      }
+    }
+  }, []);
+
+  useEffect(() => {
+    if (generatedCards.length > 0) {
+      localStorage.setItem("anki-cards-history", JSON.stringify(generatedCards));
+    }
+  }, [generatedCards]);
+
+  const clearHistory = () => {
+    if (confirm("Are you sure you want to clear all history?")) {
+      setGeneratedCards([]);
+      localStorage.removeItem("anki-cards-history");
+    }
+  };
+
+  const handleCardUpdate = (index: number, newContent: string) => {
+    const newCards = [...generatedCards];
+    newCards[index] = newContent;
+    setGeneratedCards(newCards);
+  };
+
+  const handleDeleteCard = (index: number) => {
+    const newCards = generatedCards.filter((_, i) => i !== index);
+    setGeneratedCards(newCards);
+  };
+
+  // ... (existing code)
+
+
 
   const addLog = (msg: string) => setLogs((prev) => [...prev, msg]);
 
@@ -432,8 +472,8 @@ export default function App() {
           </div>
         )}
 
-        {/* Results */}
-        {status === "complete" && (
+        {/* Results with Edit Mode */}
+        {(status === "complete" || generatedCards.length > 0) && (
           <motion.div
             initial={{ opacity: 0, scale: 0.95 }}
             animate={{ opacity: 1, scale: 1 }}
@@ -441,9 +481,15 @@ export default function App() {
           >
             <div className="flex flex-col md:flex-row items-center justify-between gap-4">
               <h2 className="text-2xl font-bold text-green-500 flex items-center gap-2">
-                <CheckCircle className="w-6 h-6" /> Completed!
+                <CheckCircle className="w-6 h-6" /> Generated Cards ({generatedCards.length})
               </h2>
               <div className="flex items-center gap-2">
+                <button
+                  onClick={clearHistory}
+                  className="px-3 py-2 text-destructive hover:bg-destructive/10 rounded-md text-sm font-medium transition-colors"
+                >
+                  Clear History
+                </button>
                 <button
                   onClick={handleSyncAnki}
                   disabled={syncStatus === "syncing"}
@@ -464,19 +510,40 @@ export default function App() {
               </div>
             </div>
 
-            {syncStatus === "error" && (
-              <div className="text-xs text-destructive bg-destructive/10 p-2 rounded">
-                Failed to sync. Make sure Anki is running with AnkiConnect.
-              </div>
-            )}
+            {/* Editable Card List */}
+            <div className="space-y-4 max-h-[600px] overflow-y-auto pr-2 custom-scrollbar">
+              {generatedCards.map((card, idx) => {
+                const [q, a] = card.split("\t");
+                return (
+                  <div key={idx} className="p-4 rounded-lg bg-muted/30 border border-border space-y-3 group relative">
+                    <button
+                      onClick={() => handleDeleteCard(idx)}
+                      className="absolute top-2 right-2 opacity-0 group-hover:opacity-100 p-1 text-destructive hover:bg-destructive/10 rounded transition-all"
+                      title="Delete Card"
+                    >
+                      <Trash2 className="w-4 h-4" />
+                    </button>
 
-            <div className="space-y-2">
-              <p className="text-muted-foreground">Generated {generatedCards.length} chunks of cards.</p>
-              <div className="bg-muted/50 p-4 rounded-md max-h-96 overflow-y-auto">
-                <pre className="whitespace-pre-wrap text-xs text-foreground/80 font-mono">
-                  {generatedCards.join("\n\n-------------------\n\n")}
-                </pre>
-              </div>
+                    <div className="space-y-1">
+                      <label className="text-xs font-bold text-muted-foreground uppercase">Question (Front)</label>
+                      <textarea
+                        value={q || ""}
+                        onChange={(e) => handleCardUpdate(idx, `${e.target.value}\t${a || ""}`)}
+                        className="w-full p-2 bg-background border border-border rounded-md text-sm font-medium focus:ring-1 focus:ring-primary outline-none min-h-[60px]"
+                      />
+                    </div>
+
+                    <div className="space-y-1">
+                      <label className="text-xs font-bold text-muted-foreground uppercase">Answer (Back - HTML)</label>
+                      <textarea
+                        value={a || ""}
+                        onChange={(e) => handleCardUpdate(idx, `${q || ""}\t${e.target.value}`)}
+                        className="w-full p-2 bg-background border border-border rounded-md text-sm font-mono text-muted-foreground focus:ring-1 focus:ring-primary outline-none min-h-[100px]"
+                      />
+                    </div>
+                  </div>
+                );
+              })}
             </div>
           </motion.div>
         )}
