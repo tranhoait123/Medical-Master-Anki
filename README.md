@@ -96,28 +96,28 @@ Xong! Mở trình duyệt tại `http://localhost:5173` và bắt đầu thôi.
 
 Để đạt hiệu quả cao nhất, hãy làm theo các bước sau:
 
-**1. Nạp nhiên liệu ⛽**
+### 1. Nạp nhiên liệu ⛽
 
 * Nhập **Gemini API Key** (Lấy miễn phí tại Google AI Studio).
 * Upload file PDF bài giảng, hoặc Paste đoạn văn bản cần học.
 
-**2. Phân tích & Lên kế hoạch 🧭**
+### 2. Phân tích & Lên kế hoạch 🧭
 
 * Nhập **Topic Focus** (Quan trọng): Nếu file PDF dài 100 trang, hãy gõ "Bài Suy Tim" để AI chỉ tập trung vào đó.
 * Bấm **Analyze**.
 
-**3. Kiểm duyệt (The Gatekeeper) 👮**
+### 3. Kiểm duyệt (The Gatekeeper) 👮
 
 * AI sẽ trả về bảng **Review Outline**.
 * Kiểm tra xem nó chia mục đúng chưa.
 * Bỏ tick những phần rườm rà không cần thiết.
 
-**4. Khởi động nhà máy 🏭**
+### 4. Khởi động nhà máy 🏭
 
 * Bấm **Start Generation**.
 * Ngồi đợi AI "nhả" thẻ. Chỗ này có **Context Caching** nên sẽ chạy khá nhanh.
 
-**5. Hậu kỳ & Xuất xưởng 📦**
+### 5. Hậu kỳ & Xuất xưởng 📦
 
 * Đọc lướt qua các thẻ. Bấm vào icon ✏️ để sửa nếu cần.
 * Bấm **Sync to Anki**. Bùm! Xong.
