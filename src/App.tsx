@@ -1,13 +1,29 @@
-import { useState, useRef, useEffect } from "react";
+import { useState, useRef, useEffect, useCallback } from "react";
 import { GeminiService } from "./lib/gemini";
 import { fileToGenerativePart } from "./lib/file-processing";
 import { AnkiConnectService } from "./lib/anki";
 import { PROMPTS } from "./prompts";
-import { Upload, FileText, CheckCircle, Loader2, Download, Play, Settings, AlertCircle, RefreshCw, Trash2 } from "lucide-react";
+import { Upload, FileText, CheckCircle, Loader2, Download, Play, Settings, AlertCircle, RefreshCw, Trash2, Sun, Moon, X, BarChart3 } from "lucide-react";
 import { cn } from "./lib/utils";
 import { motion, AnimatePresence } from "framer-motion";
 
 type AppState = "idle" | "uploading" | "analyzing" | "extracting" | "reviewing" | "generating" | "complete" | "error";
+
+// Toast notification type
+interface Toast {
+  id: number;
+  message: string;
+  type: "success" | "error" | "info";
+}
+
+// Statistics type
+interface GenerationStats {
+  totalCards: number;
+  blockedChunks: number;
+  retriedChunks: number;
+  startTime: number;
+  endTime: number;
+}
 
 export default function App() {
   const [apiKey, setApiKey] = useState("");
@@ -29,13 +45,123 @@ export default function App() {
   const [selectedChunks, setSelectedChunks] = useState<number[]>([]);
   const geminiRef = useRef<GeminiService | null>(null);
 
+  // Phase 1 Features: New State
+  const [isDarkMode, setIsDarkMode] = useState(true);
+  const [isDragging, setIsDragging] = useState(false);
+  const [toasts, setToasts] = useState<Toast[]>([]);
+  const [stats, setStats] = useState<GenerationStats | null>(null);
+  const [showStats, setShowStats] = useState(false);
 
+  // Phase 2 Features: New State
+  const [viewMode, setViewMode] = useState<"raw" | "preview">("preview");
+  const [flippedCards, setFlippedCards] = useState<Set<number>>(new Set());
 
   // Scroll to bottom of logs
   const logsEndRef = useRef<HTMLDivElement>(null);
   useEffect(() => {
     logsEndRef.current?.scrollIntoView({ behavior: "smooth" });
   }, [logs]);
+
+  // --- DARK MODE ---
+  useEffect(() => {
+    const savedTheme = localStorage.getItem("theme");
+    if (savedTheme === "light") {
+      setIsDarkMode(false);
+      document.documentElement.classList.add("light");
+    }
+  }, []);
+
+  const toggleTheme = useCallback(() => {
+    setIsDarkMode(prev => {
+      const newMode = !prev;
+      if (newMode) {
+        document.documentElement.classList.remove("light");
+        localStorage.setItem("theme", "dark");
+      } else {
+        document.documentElement.classList.add("light");
+        localStorage.setItem("theme", "light");
+      }
+      return newMode;
+    });
+  }, []);
+
+  // --- TOAST NOTIFICATIONS ---
+  const addToast = useCallback((message: string, type: Toast["type"] = "info") => {
+    const id = Date.now();
+    setToasts(prev => [...prev, { id, message, type }]);
+    // Auto remove after 4s
+    setTimeout(() => {
+      setToasts(prev => prev.filter(t => t.id !== id));
+    }, 4000);
+  }, []);
+
+  const removeToast = useCallback((id: number) => {
+    setToasts(prev => prev.filter(t => t.id !== id));
+  }, []);
+
+  // --- KEYBOARD SHORTCUTS ---
+  useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent) => {
+      // Ctrl/Cmd + Enter: Analyze or Generate
+      if ((e.ctrlKey || e.metaKey) && e.key === "Enter") {
+        e.preventDefault();
+        if (status === "reviewing") {
+          handleConfirmGeneration();
+        } else if (status === "idle" || status === "complete" || status === "error") {
+          handleAnalyze();
+        }
+      }
+      // Ctrl/Cmd + S: Download CSV
+      if ((e.ctrlKey || e.metaKey) && e.key === "s") {
+        e.preventDefault();
+        if (generatedCards.length > 0) {
+          handleDownload();
+          addToast("CSV downloaded!", "success");
+        }
+      }
+      // Ctrl/Cmd + D: Toggle dark mode
+      if ((e.ctrlKey || e.metaKey) && e.key === "d") {
+        e.preventDefault();
+        toggleTheme();
+      }
+    };
+
+    window.addEventListener("keydown", handleKeyDown);
+    return () => window.removeEventListener("keydown", handleKeyDown);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [status, generatedCards.length, toggleTheme, addToast]);
+
+  // --- DRAG & DROP ---
+  const handleDragOver = useCallback((e: React.DragEvent) => {
+    e.preventDefault();
+    e.stopPropagation();
+    setIsDragging(true);
+  }, []);
+
+  const handleDragLeave = useCallback((e: React.DragEvent) => {
+    e.preventDefault();
+    e.stopPropagation();
+    setIsDragging(false);
+  }, []);
+
+  const handleDrop = useCallback((e: React.DragEvent) => {
+    e.preventDefault();
+    e.stopPropagation();
+    setIsDragging(false);
+
+    const droppedFile = e.dataTransfer.files?.[0];
+    if (droppedFile) {
+      const validTypes = [".pdf", ".txt", ".md", ".png", ".jpg", ".jpeg", ".webp", ".heic"];
+      const ext = "." + droppedFile.name.split(".").pop()?.toLowerCase();
+      if (validTypes.includes(ext)) {
+        setFile(droppedFile);
+        setInputMode("file");
+        addToast(`File "${droppedFile.name}" loaded!`, "success");
+      } else {
+        addToast("Invalid file type. Supported: PDF, TXT, MD, Images", "error");
+      }
+    }
+  }, [addToast]);
 
 
   // --- HISTORY & PERSISTENCE ---
@@ -72,6 +198,7 @@ export default function App() {
     if (confirm("Are you sure you want to clear all history?")) {
       setGeneratedCards([]);
       localStorage.removeItem("anki-cards-history");
+      addToast("History cleared!", "info");
     }
   };
 
@@ -86,7 +213,76 @@ export default function App() {
     setGeneratedCards(newCards);
   };
 
-  // ... (existing code)
+  // --- STATISTICS CALCULATION ---
+  const calculateStats = useCallback(() => {
+    if (!stats) return null;
+
+    const totalCards = generatedCards.reduce((acc, chunk) => {
+      return acc + chunk.split("\n").filter(line => line.trim().startsWith('"')).length;
+    }, 0);
+
+    const duration = stats.endTime - stats.startTime;
+    const minutes = Math.floor(duration / 60000);
+    const seconds = Math.floor((duration % 60000) / 1000);
+
+    return {
+      totalCards,
+      blockedChunks: stats.blockedChunks,
+      retriedChunks: stats.retriedChunks,
+      duration: `${minutes}m ${seconds}s`,
+      cardsPerMinute: duration > 0 ? Math.round(totalCards / (duration / 60000)) : 0
+    };
+  }, [stats, generatedCards]);
+
+  // --- PARSE ALL CARDS FOR PREVIEW ---
+  const parseAllCards = useCallback(() => {
+    const cards: { question: string; answer: string; chunkIdx: number; cardIdx: number }[] = [];
+
+    generatedCards.forEach((chunk, chunkIdx) => {
+      const lines = chunk.split('\n').filter(line => line.trim().startsWith('"'));
+      lines.forEach((line, cardIdx) => {
+        // Parse CSV line: "Question","Answer"
+        const trimmed = line.trim();
+        if (!trimmed.startsWith('"')) return;
+
+        let inQuote = false;
+        let separatorIndex = -1;
+        for (let i = 0; i < trimmed.length; i++) {
+          if (trimmed[i] === '"') {
+            if (trimmed[i + 1] === '"') {
+              i++; // Skip escaped quote
+            } else {
+              inQuote = !inQuote;
+            }
+          } else if (trimmed[i] === ',' && !inQuote && trimmed[i - 1] === '"') {
+            separatorIndex = i;
+            break;
+          }
+        }
+
+        if (separatorIndex !== -1) {
+          const question = trimmed.slice(1, separatorIndex - 1).replace(/""/g, '"');
+          const answer = trimmed.slice(separatorIndex + 2, -1).replace(/""/g, '"');
+          cards.push({ question, answer, chunkIdx, cardIdx });
+        }
+      });
+    });
+
+    return cards;
+  }, [generatedCards]);
+
+  // --- FLIP CARD TOGGLE ---
+  const toggleCardFlip = useCallback((cardIndex: number) => {
+    setFlippedCards(prev => {
+      const newSet = new Set(prev);
+      if (newSet.has(cardIndex)) {
+        newSet.delete(cardIndex);
+      } else {
+        newSet.add(cardIndex);
+      }
+      return newSet;
+    });
+  }, []);
 
 
 
@@ -212,6 +408,11 @@ export default function App() {
       const allCards: string[] = [];
       const conceptHistory: string[] = []; // Store generated questions to prevent duplicates
 
+      // Statistics tracking
+      const startTime = Date.now();
+      let retriedChunks = 0;
+      let blockedChunks = 0;
+
       // Helper function for delay (rate limit protection)
       const delay = (ms: number) => new Promise(resolve => setTimeout(resolve, ms));
 
@@ -244,6 +445,7 @@ export default function App() {
             // If blocked, retry with paraphrase prompt
             addLog(`⚠️ Chunk ${i + 1} blocked. Retrying with paraphrase mode...`);
             retried = true;
+            retriedChunks++;
 
             try {
               // Add delay before retry to avoid rate limit
@@ -256,6 +458,7 @@ export default function App() {
               // Both attempts failed, skip this chunk
               console.error(`Chunk ${i + 1} failed both attempts`, retryErr);
               addLog(`❌ Chunk ${i + 1} failed both attempts. Skipping...`);
+              blockedChunks++;
               continue;
             }
           }
@@ -292,6 +495,7 @@ export default function App() {
         } catch (chunkErr) {
           console.error(`Error processing chunk ${i + 1}`, chunkErr);
           addLog(`⚠️ Chunk ${i + 1} blocked by AI Safety Filter (Recitation). Skipping...`);
+          blockedChunks++;
         }
       }
 
@@ -299,8 +503,19 @@ export default function App() {
       addLog("🧹 Cleaning up cache...");
       await gemini.deleteCache();
 
+      // Save statistics
+      const endTime = Date.now();
+      setStats({
+        totalCards: allCards.reduce((acc, chunk) => acc + chunk.split('\n').filter(l => l.startsWith('"')).length, 0),
+        blockedChunks,
+        retriedChunks,
+        startTime,
+        endTime
+      });
+
       setGeneratedCards(allCards);
       setStatus("complete");
+      addToast(`Generation complete! ${allCards.length} chunks processed.`, "success");
     } catch (err: unknown) {
       console.error(err);
       const msg = err instanceof Error ? err.message : String(err);
@@ -397,12 +612,71 @@ export default function App() {
   };
 
   return (
-    <div className="min-h-screen bg-background text-foreground font-sans p-8 flex flex-col items-center">
+    <div
+      className="min-h-screen bg-background text-foreground font-sans p-8 flex flex-col items-center"
+      onDragOver={handleDragOver}
+      onDragLeave={handleDragLeave}
+      onDrop={handleDrop}
+    >
+      {/* Toast Notifications */}
+      <div className="fixed top-4 right-4 z-50 space-y-2">
+        <AnimatePresence>
+          {toasts.map(toast => (
+            <motion.div
+              key={toast.id}
+              initial={{ opacity: 0, x: 100 }}
+              animate={{ opacity: 1, x: 0 }}
+              exit={{ opacity: 0, x: 100 }}
+              className={cn(
+                "flex items-center gap-3 px-4 py-3 rounded-lg shadow-lg border min-w-[280px]",
+                toast.type === "success" && "bg-green-500/10 border-green-500/30 text-green-400",
+                toast.type === "error" && "bg-red-500/10 border-red-500/30 text-red-400",
+                toast.type === "info" && "bg-blue-500/10 border-blue-500/30 text-blue-400"
+              )}
+            >
+              {toast.type === "success" && <CheckCircle className="w-5 h-5" />}
+              {toast.type === "error" && <AlertCircle className="w-5 h-5" />}
+              {toast.type === "info" && <Settings className="w-5 h-5" />}
+              <span className="text-sm font-medium flex-1">{toast.message}</span>
+              <button onClick={() => removeToast(toast.id)} className="hover:opacity-70">
+                <X className="w-4 h-4" />
+              </button>
+            </motion.div>
+          ))}
+        </AnimatePresence>
+      </div>
+
+      {/* Drag Overlay */}
+      <AnimatePresence>
+        {isDragging && (
+          <motion.div
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+            className="fixed inset-0 z-40 bg-primary/10 backdrop-blur-sm flex items-center justify-center pointer-events-none"
+          >
+            <div className="bg-card border-2 border-dashed border-primary rounded-2xl p-12 text-center">
+              <Upload className="w-16 h-16 text-primary mx-auto mb-4" />
+              <p className="text-xl font-bold text-foreground">Drop your file here</p>
+              <p className="text-muted-foreground text-sm mt-1">PDF, TXT, MD, or Images</p>
+            </div>
+          </motion.div>
+        )}
+      </AnimatePresence>
+
       <div className="w-full max-w-3xl space-y-8">
 
         {/* Header */}
-        {/* Header */}
-        <header className="flex flex-col items-center text-center space-y-4 pt-8">
+        <header className="flex flex-col items-center text-center space-y-4 pt-8 relative">
+          {/* Theme Toggle - Top Right */}
+          <button
+            onClick={toggleTheme}
+            className="absolute top-2 right-0 p-2 rounded-full bg-card border border-border hover:bg-accent transition-colors"
+            title={isDarkMode ? "Switch to Light Mode (Ctrl+D)" : "Switch to Dark Mode (Ctrl+D)"}
+          >
+            {isDarkMode ? <Sun className="w-5 h-5" /> : <Moon className="w-5 h-5" />}
+          </button>
+
           <div className="relative group">
             <img src="/src/assets/ponz-logo.jpg" alt="PonZ Logo" className="relative w-24 h-24 rounded-2xl shadow-md border border-border object-cover" />
           </div>
@@ -722,6 +996,16 @@ export default function App() {
               </h2>
               <div className="flex items-center gap-2">
                 <button
+                  onClick={() => setShowStats(!showStats)}
+                  className={cn(
+                    "px-3 py-2 rounded-md text-sm font-medium transition-colors border border-border flex items-center gap-2",
+                    showStats ? "bg-primary text-primary-foreground" : "hover:bg-accent"
+                  )}
+                  title="Show/Hide Statistics"
+                >
+                  <BarChart3 className="w-4 h-4" />
+                </button>
+                <button
                   onClick={clearHistory}
                   className="px-3 py-2 text-destructive hover:bg-destructive/10 rounded-md text-sm font-medium transition-colors"
                 >
@@ -739,7 +1023,10 @@ export default function App() {
                   {syncStatus === "success" ? "Synced!" : "Sync to Anki"}
                 </button>
                 <button
-                  onClick={handleDownload}
+                  onClick={() => {
+                    handleDownload();
+                    addToast("CSV downloaded!", "success");
+                  }}
                   className="bg-primary hover:bg-primary/90 text-primary-foreground px-4 py-2 rounded-md font-medium flex items-center gap-2 transition-colors shadow-sm"
                 >
                   <Download className="w-4 h-4" /> Download .csv
@@ -747,10 +1034,129 @@ export default function App() {
               </div>
             </div>
 
-            {/* Editable Card List */}
-            <div className="space-y-4 max-h-[600px] overflow-y-auto pr-2 custom-scrollbar">
-              {generatedCards.map((card, idx) => {
-                return (
+            {/* Statistics Panel */}
+            <AnimatePresence>
+              {showStats && (
+                <motion.div
+                  initial={{ opacity: 0, height: 0 }}
+                  animate={{ opacity: 1, height: "auto" }}
+                  exit={{ opacity: 0, height: 0 }}
+                  className="overflow-hidden"
+                >
+                  <div className="grid grid-cols-2 md:grid-cols-4 gap-4 p-4 bg-muted/30 rounded-lg border border-border">
+                    <div className="text-center">
+                      <p className="text-2xl font-bold text-primary">
+                        {generatedCards.reduce((acc, chunk) => acc + chunk.split("\n").filter(line => line.trim().startsWith('"')).length, 0)}
+                      </p>
+                      <p className="text-xs text-muted-foreground uppercase">Total Cards</p>
+                    </div>
+                    <div className="text-center">
+                      <p className="text-2xl font-bold text-foreground">{generatedCards.length}</p>
+                      <p className="text-xs text-muted-foreground uppercase">Chunks</p>
+                    </div>
+                    <div className="text-center">
+                      <p className="text-2xl font-bold text-yellow-500">{stats?.retriedChunks || 0}</p>
+                      <p className="text-xs text-muted-foreground uppercase">Retried</p>
+                    </div>
+                    <div className="text-center">
+                      <p className="text-2xl font-bold text-red-500">{stats?.blockedChunks || 0}</p>
+                      <p className="text-xs text-muted-foreground uppercase">Blocked</p>
+                    </div>
+                  </div>
+                  {stats && (
+                    <div className="mt-2 text-center text-xs text-muted-foreground">
+                      ⏱️ Generated in {calculateStats()?.duration || "N/A"} •
+                      ~{calculateStats()?.cardsPerMinute || 0} cards/min
+                    </div>
+                  )}
+                </motion.div>
+              )}
+            </AnimatePresence>
+
+            {/* Keyboard Shortcuts Hint */}
+            <div className="text-xs text-muted-foreground text-center border-t border-border pt-3">
+              ⌨️ <kbd className="px-1.5 py-0.5 bg-muted rounded text-xs">Ctrl+S</kbd> Download CSV •
+              <kbd className="px-1.5 py-0.5 bg-muted rounded text-xs ml-2">Ctrl+D</kbd> Toggle Theme •
+              <kbd className="px-1.5 py-0.5 bg-muted rounded text-xs ml-2">Ctrl+Enter</kbd> Analyze/Generate
+            </div>
+
+            {/* View Mode Toggle */}
+            <div className="flex items-center justify-between border-t border-border pt-4">
+              <span className="text-sm font-medium text-muted-foreground">View Mode:</span>
+              <div className="flex rounded-lg border border-border overflow-hidden">
+                <button
+                  onClick={() => setViewMode("preview")}
+                  className={cn(
+                    "px-4 py-2 text-sm font-medium transition-colors",
+                    viewMode === "preview" ? "bg-primary text-primary-foreground" : "hover:bg-accent"
+                  )}
+                >
+                  🎴 Preview
+                </button>
+                <button
+                  onClick={() => setViewMode("raw")}
+                  className={cn(
+                    "px-4 py-2 text-sm font-medium transition-colors border-l border-border",
+                    viewMode === "raw" ? "bg-primary text-primary-foreground" : "hover:bg-accent"
+                  )}
+                >
+                  📝 Raw CSV
+                </button>
+              </div>
+            </div>
+
+            {/* Card Display Area */}
+            {viewMode === "preview" ? (
+              /* Preview Mode - FlipCards */
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4 max-h-[600px] overflow-y-auto pr-2 custom-scrollbar">
+                {parseAllCards().map((card, idx) => (
+                  <motion.div
+                    key={`${card.chunkIdx}-${card.cardIdx}`}
+                    className="relative"
+                    initial={{ opacity: 0, y: 20 }}
+                    animate={{ opacity: 1, y: 0 }}
+                    transition={{ delay: idx * 0.02 }}
+                  >
+                    <div
+                      onClick={() => toggleCardFlip(idx)}
+                      className="cursor-pointer transition-all duration-500"
+                      style={{
+                        transformStyle: "preserve-3d",
+                        transform: flippedCards.has(idx) ? "rotateY(180deg)" : "rotateY(0deg)",
+                      }}
+                    >
+                      {/* Front - Question */}
+                      {!flippedCards.has(idx) ? (
+                        <div className="min-h-[180px] rounded-xl border-2 border-primary/30 bg-gradient-to-br from-primary/5 to-primary/10 p-4 flex flex-col">
+                          <div className="flex items-center justify-between mb-2">
+                            <span className="text-xs font-bold text-primary uppercase">Question</span>
+                            <span className="text-xs text-muted-foreground">#{idx + 1}</span>
+                          </div>
+                          <p className="text-sm text-foreground flex-1 overflow-y-auto">{card.question}</p>
+                          <p className="text-xs text-muted-foreground mt-2 text-center">👆 Click to reveal answer</p>
+                        </div>
+                      ) : (
+                        /* Back - Answer */
+                        <div className="min-h-[180px] rounded-xl border-2 border-green-500/30 bg-gradient-to-br from-green-500/5 to-green-500/10 p-4 flex flex-col">
+                          <div className="flex items-center justify-between mb-2">
+                            <span className="text-xs font-bold text-green-500 uppercase">Answer</span>
+                            <span className="text-xs text-muted-foreground">#{idx + 1}</span>
+                          </div>
+                          <div
+                            className="text-sm text-foreground flex-1 overflow-y-auto"
+                            dangerouslySetInnerHTML={{ __html: card.answer }}
+                          />
+                          <p className="text-xs text-muted-foreground mt-2 text-center">👆 Click to flip back</p>
+                        </div>
+                      )}
+                    </div>
+                  </motion.div>
+                ))}
+              </div>
+            ) : (
+              /* Raw Mode - Editable CSV */
+              <div className="space-y-4 max-h-[600px] overflow-y-auto pr-2 custom-scrollbar">
+                {generatedCards.map((card, idx) => (
                   <div key={idx} className="p-4 rounded-lg bg-muted/30 border border-border space-y-3 group relative">
                     <button
                       onClick={() => handleDeleteCard(idx)}
@@ -761,7 +1167,7 @@ export default function App() {
                     </button>
 
                     <div className="space-y-1">
-                      <label className="text-xs font-bold text-muted-foreground uppercase">CSV Content (Raw chunk)</label>
+                      <label className="text-xs font-bold text-muted-foreground uppercase">CSV Content (Chunk {idx + 1})</label>
                       <textarea
                         value={card}
                         onChange={(e) => handleCardUpdate(idx, e.target.value)}
@@ -769,9 +1175,9 @@ export default function App() {
                       />
                     </div>
                   </div>
-                );
-              })}
-            </div>
+                ))}
+              </div>
+            )}
           </motion.div>
         )}
 
