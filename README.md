@@ -63,6 +63,11 @@ Thay vì phó mặc cho AI "muốn làm gì thì làm", bạn nắm quyền ki�
 * **CSV Format:** Xuất thẻ ra định dạng CSV chuẩn (`"Câu hỏi","Câu trả lời"`) - dễ dàng import vào Anki hoặc mở trong Excel.
 * **Auto Retry (Paraphrase Mode):** Khi chunk bị chặn bởi AI Safety Filter (Recitation), hệ thống tự động thử lại với prompt yêu cầu AI diễn đạt lại (paraphrase) - không mất nội dung.
 
+### 6. 📁 Multi-File Knowledge Base
+
+* **Hỗ trợ đa tập tin:** Upload nhiều file (PDF, Text, Ảnh) cùng một lúc.
+* AI sẽ tự động gộp tất cả vào một Context Cache duy nhất để phân tích tổng hợp và tạo thẻ liên kết các kiến thức.
+
 ---
 
 ## 🛠️ Hướng Dẫn Cài Đặt (Local)
@@ -155,6 +160,7 @@ Xong! Mở trình duyệt tại `http://localhost:5173` và bắt đầu thôi.
 
 | Version | Ngày | Thay đổi nổi bật |
 | :--- | :--- | :--- |
+| **v1.7.0** | 02/2026 | Modular Refactor (Clean Code), True Multi-file Support, Enhanced UI Components. |
 | **v1.6.1** | 02/2026 | Bug fixes: CSV parsing, memory leak, rate limits, localStorage limit, cache cleanup. |
 | **v1.6.0** | 02/2026 | CSV Export, Auto Retry (Paraphrase Mode) khi bị Recitation Filter. |
 | **v1.5.0** | 02/2026 | Auto-Refresh Cache, Selective Generation, UI Polish. |

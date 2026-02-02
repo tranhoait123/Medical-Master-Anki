@@ -1,46 +1,38 @@
 import { useState, useRef, useEffect, useCallback, useMemo } from "react";
-import { GeminiService } from "./lib/gemini";
+import { GeminiService, type ContentPart } from "./lib/gemini";
 import { fileToGenerativePart } from "./lib/file-processing";
 import { AnkiConnectService } from "./lib/anki";
 import { PROMPTS } from "./prompts";
-import { Upload, FileText, CheckCircle, Loader2, Download, Play, Settings, AlertCircle, RefreshCw, Trash2, Sun, Moon, X, BarChart3, Search } from "lucide-react";
+import { CheckCircle, Loader2, Download, AlertCircle, RefreshCw, X } from "lucide-react";
 import { cn } from "./lib/utils";
 import { motion, AnimatePresence } from "framer-motion";
 
-type AppState = "idle" | "uploading" | "analyzing" | "extracting" | "reviewing" | "generating" | "complete" | "error";
+// Components
+import { Header } from "./components/Header";
+import { StatsPanel } from "./components/StatsPanel";
+import { CardList } from "./components/CardList";
+import { FileUpload } from "./components/FileUpload";
 
-// Toast notification type
-interface Toast {
-  id: number;
-  message: string;
-  type: "success" | "error" | "info";
-}
-
-// Statistics type
-interface GenerationStats {
-  totalCards: number;
-  blockedChunks: number;
-  retriedChunks: number;
-  startTime: number;
-  endTime: number;
-}
+// Types
+import type { AppState, Toast, GenerationStats } from "./types";
 
 export default function App() {
   const [apiKey, setApiKey] = useState("");
   const [inputMode, setInputMode] = useState<"file" | "text">("file");
-  const [file, setFile] = useState<File | null>(null);
+  const [files, setFiles] = useState<File[]>([]); // Multi-file support
+  // const [file, setFile] = useState<File | null>(null); // Deprecated
   const [textInput, setTextInput] = useState("");
   const [topicScope, setTopicScope] = useState("");
   const [status, setStatus] = useState<AppState>("idle");
   const [logs, setLogs] = useState<string[]>([]);
-  const [progress, setProgress] = useState(0);
+  // const [progress, setProgress] = useState(0);
   const [generatedCards, setGeneratedCards] = useState<string[]>([]);
   const [errorMsg, setErrorMsg] = useState("");
   const [showConfig, setShowConfig] = useState(true);
   const [syncStatus, setSyncStatus] = useState<"idle" | "syncing" | "success" | "error">("idle");
   const [ankiUrl, setAnkiUrl] = useState("http://127.0.0.1:8765");
   const [deckName, setDeckName] = useState("Default");
-  const [outlineContent, setOutlineContent] = useState("");
+  // const [outlineContent, setOutlineContent] = useState("");
   const [commands, setCommands] = useState<string[]>([]);
   const [selectedChunks, setSelectedChunks] = useState<number[]>([]);
   const geminiRef = useRef<GeminiService | null>(null);
@@ -119,8 +111,9 @@ export default function App() {
       if ((e.ctrlKey || e.metaKey) && e.key === "s") {
         e.preventDefault();
         if (generatedCards.length > 0) {
-          handleDownload();
-          addToast("CSV downloaded!", "success");
+          if (generatedCards.length > 0) {
+            handleExport();
+          }
         }
       }
       // Ctrl/Cmd + D: Toggle dark mode
@@ -153,16 +146,23 @@ export default function App() {
     e.stopPropagation();
     setIsDragging(false);
 
-    const droppedFile = e.dataTransfer.files?.[0];
-    if (droppedFile) {
+    if (e.dataTransfer.files && e.dataTransfer.files.length > 0) {
+      const droppedFiles = Array.from(e.dataTransfer.files);
       const validTypes = [".pdf", ".txt", ".md", ".png", ".jpg", ".jpeg", ".webp", ".heic"];
-      const ext = "." + droppedFile.name.split(".").pop()?.toLowerCase();
-      if (validTypes.includes(ext)) {
-        setFile(droppedFile);
+
+      const validFiles = droppedFiles.filter(file => {
+        const ext = "." + file.name.split(".").pop()?.toLowerCase();
+        return validTypes.includes(ext);
+      });
+
+      if (validFiles.length > 0) {
+        setFiles(prev => [...prev, ...validFiles]);
         setInputMode("file");
-        addToast(`File "${droppedFile.name}" loaded!`, "success");
-      } else {
-        addToast("Invalid file type. Supported: PDF, TXT, MD, Images", "error");
+        addToast(`Added ${validFiles.length} file(s)!`, "success");
+      }
+
+      if (validFiles.length < droppedFiles.length) {
+        addToast(`Some files were skipped (invalid type).`, "error");
       }
     }
   }, [addToast]);
@@ -198,13 +198,7 @@ export default function App() {
     }
   }, [generatedCards]);
 
-  const clearHistory = () => {
-    if (confirm("Are you sure you want to clear all history?")) {
-      setGeneratedCards([]);
-      localStorage.removeItem("anki-cards-history");
-      addToast("History cleared!", "info");
-    }
-  };
+  // const clearHistory = () => { ... };
 
   const handleCardUpdate = (index: number, newContent: string) => {
     const newCards = [...generatedCards];
@@ -303,7 +297,12 @@ export default function App() {
   // --- EXPORT HANDLERS ---
   const handleExport = useCallback(() => {
     let content = "";
-    let filename = `anki_export_${file?.name || "data"}`;
+
+    // Determine filename
+    let filenameName = files.length > 0 ? files[0].name : "data";
+    if (files.length > 1) filenameName = `${files.length}_files_batch`;
+
+    let filename = `anki_export_${filenameName}`;
     let mimeType = "text/plain";
 
     if (exportFormat === "csv") {
@@ -348,7 +347,7 @@ export default function App() {
     document.body.removeChild(a);
     URL.revokeObjectURL(url);
     addToast(`Exported as ${exportFormat.toUpperCase()}!`, "success");
-  }, [exportFormat, generatedCards, file, parseAllCards, addToast]);
+  }, [exportFormat, generatedCards, files, parseAllCards, addToast]);
 
   const addLog = (msg: string) => setLogs((prev) => [...prev, msg]);
 
@@ -358,25 +357,24 @@ export default function App() {
       return;
     }
 
-    let contentToProcess = "";
-    let contentName = "Data";
-
-    const userFocus = topicScope.trim() ? `CHỦ ĐỀ CẦN TẬP TRUNG: "${topicScope}". (Chỉ trích xuất nội dung liên quan đến chủ đề này).` : "Xử lý toàn bộ tài liệu.";
-
+    // Validation
     if (inputMode === "file") {
-      if (!file) {
-        setErrorMsg("Please upload a file.");
+      if (files.length === 0) {
+        setErrorMsg("Please upload at least one file.");
         return;
       }
-      contentName = file.name;
     } else {
       if (!textInput.trim()) {
         setErrorMsg("Please paste some text.");
         return;
       }
-      contentToProcess = textInput;
-      contentName = "Pasted Text";
     }
+
+    const contentName = inputMode === "file"
+      ? (files.length === 1 ? files[0].name : `${files.length} Documents`)
+      : "Text Data";
+
+    const userFocus = topicScope.trim() ? `CHỦ ĐỀ CẦN TẬP TRUNG: "${topicScope}". (Chỉ trích xuất nội dung liên quan đến chủ đề này).` : "Xử lý toàn bộ tài liệu.";
 
     try {
       setErrorMsg("");
@@ -389,41 +387,36 @@ export default function App() {
         addLog(`🎯 Focus Scope: ${topicScope}`);
       }
 
-      let filePart: { inlineData: { data: string; mimeType: string } } | null = null;
+      const gemini = new GeminiService(apiKey);
+      geminiRef.current = gemini;
 
       // 1. Prepare Content
-      if (inputMode === "file" && file) {
-        addLog(`📄 Processing file: ${file.name}...`);
-        filePart = await fileToGenerativePart(file);
-        addLog(`✅ File converted.`);
+      let contentInput: ContentPart | ContentPart[];
+
+      if (inputMode === "file") {
+        addLog(`� Processing ${files.length} file(s)...`);
+        const parts = await Promise.all(files.map(f => fileToGenerativePart(f)));
+        contentInput = parts;
+        addLog(`✅ Files converted.`);
       } else {
+        contentInput = textInput;
         addLog(`✅ Text content ready.`);
       }
 
-      const gemini = new GeminiService(apiKey);
-
-      // Step 1: Analyze structure
+      // Step 1: Create Cache
       setStatus("analyzing");
-      addLog("🔵 Analyzing document structure...");
+      addLog("� Creating Knowledge Base cache (saves ~90% tokens)...");
 
       const corePrompt = PROMPTS.MedicalTutor;
+      await gemini.createCache(corePrompt, contentInput);
 
-      // Create content for caching
-      const cacheContent = inputMode === "file" && filePart
-        ? filePart
-        : contentToProcess;
-
-      // Create cache with system prompt + content
-      addLog("📦 Creating context cache (saves ~90% tokens)...");
-      await gemini.createCache(corePrompt, cacheContent);
-      geminiRef.current = gemini;
-      addLog("✅ Cache created! Subsequent calls will be much cheaper.");
+      addLog("✅ Cache created! Ready for processing.");
 
       // Phase 1: Generate outline using cached context
       const phase1Command = `USER COMMAND: Giai đoạn 1 bài ${contentName}. ${userFocus}`;
       addLog("⏳ Sending request to Gemini (Phase 1)...");
       const phase1Output = await gemini.generateWithCache(phase1Command);
-      setOutlineContent(phase1Output);
+      // setOutlineContent(phase1Output);
       addLog("✅ Outline generated.");
 
       // Step 2: Extract concepts
@@ -483,7 +476,7 @@ export default function App() {
       for (let i = 0; i < commandsToProcess.length; i++) {
         const cmd = commandsToProcess[i];
         addLog(`Processing chunk ${i + 1}/${commandsToProcess.length}: ${cmd.slice(0, 50)}...`);
-        setProgress(((i + 1) / commandsToProcess.length) * 100);
+        // setProgress(((i + 1) / commandsToProcess.length) * 100);
 
         // Rate limit protection: wait 1.5s between requests (allows ~40 req/min, under 60 limit)
         if (i > 0) {
@@ -662,47 +655,34 @@ export default function App() {
     }
   };
 
-  const handleDownload = () => {
-    const blob = new Blob([generatedCards.join("\n")], { type: "text/csv;charset=utf-8;" });
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement("a");
-    a.href = url;
-    a.download = `anki_export_${file?.name || "data"}.csv`;
-    document.body.appendChild(a);
-    a.click();
-    document.body.removeChild(a);
-    // Fix memory leak: revoke the object URL after download
-    URL.revokeObjectURL(url);
-  };
-
+  // --- RENDER ---
   return (
     <div
-      className="min-h-screen bg-background text-foreground font-sans p-8 flex flex-col items-center"
+      className="min-h-screen bg-background text-foreground transition-colors duration-300 flex flex-col items-center py-10 px-4 md:px-8 font-sans"
       onDragOver={handleDragOver}
       onDragLeave={handleDragLeave}
       onDrop={handleDrop}
     >
       {/* Toast Notifications */}
-      <div className="fixed top-4 right-4 z-50 space-y-2">
+      <div className="fixed top-4 right-4 z-50 space-y-2 pointer-events-none">
         <AnimatePresence>
-          {toasts.map(toast => (
+          {toasts.map((toast) => (
             <motion.div
               key={toast.id}
-              initial={{ opacity: 0, x: 100 }}
+              initial={{ opacity: 0, x: 20 }}
               animate={{ opacity: 1, x: 0 }}
-              exit={{ opacity: 0, x: 100 }}
+              exit={{ opacity: 0, x: 20 }}
+              layout
               className={cn(
-                "flex items-center gap-3 px-4 py-3 rounded-lg shadow-lg border min-w-[280px]",
-                toast.type === "success" && "bg-green-500/10 border-green-500/30 text-green-400",
-                toast.type === "error" && "bg-red-500/10 border-red-500/30 text-red-400",
-                toast.type === "info" && "bg-blue-500/10 border-blue-500/30 text-blue-400"
+                "pointer-events-auto flex items-center gap-2 px-4 py-3 rounded-lg shadow-lg border text-sm font-medium",
+                toast.type === "success" ? "bg-card text-green-600 border-green-200" :
+                  toast.type === "error" ? "bg-destructive text-destructive-foreground border-destructive" :
+                    "bg-card text-foreground border-border"
               )}
             >
-              {toast.type === "success" && <CheckCircle className="w-5 h-5" />}
-              {toast.type === "error" && <AlertCircle className="w-5 h-5" />}
-              {toast.type === "info" && <Settings className="w-5 h-5" />}
-              <span className="text-sm font-medium flex-1">{toast.message}</span>
-              <button onClick={() => removeToast(toast.id)} className="hover:opacity-70">
+              {toast.type === "success" ? <CheckCircle className="w-4 h-4" /> : <AlertCircle className="w-4 h-4" />}
+              {toast.message}
+              <button onClick={() => removeToast(toast.id)} className="ml-auto hover:opacity-70 p-1">
                 <X className="w-4 h-4" />
               </button>
             </motion.div>
@@ -719,335 +699,133 @@ export default function App() {
             exit={{ opacity: 0 }}
             className="fixed inset-0 z-40 bg-primary/10 backdrop-blur-sm flex items-center justify-center pointer-events-none"
           >
-            <div className="bg-card border-2 border-dashed border-primary rounded-2xl p-12 text-center">
-              <Upload className="w-16 h-16 text-primary mx-auto mb-4" />
-              <p className="text-xl font-bold text-foreground">Drop your file here</p>
-              <p className="text-muted-foreground text-sm mt-1">PDF, TXT, MD, or Images</p>
+            <div className="bg-background p-8 rounded-xl shadow-2xl border-2 border-primary border-dashed text-center">
+              <Download className="w-16 h-16 text-primary mx-auto mb-4" />
+              <p className="text-2xl font-bold text-primary">Drop files here to upload!</p>
             </div>
           </motion.div>
         )}
       </AnimatePresence>
 
-      <div className="w-full max-w-3xl space-y-8">
+      <div className="w-full max-w-3xl space-y-8 mt-4">
+        <Header isDarkMode={isDarkMode} toggleTheme={toggleTheme} />
 
-        {/* Header */}
-        <header className="flex flex-col items-center text-center space-y-4 pt-8 relative">
-          {/* Theme Toggle - Top Right */}
-          <button
-            onClick={toggleTheme}
-            className="absolute top-2 right-0 p-2 rounded-full bg-card border border-border hover:bg-accent transition-colors"
-            title={isDarkMode ? "Switch to Light Mode (Ctrl+D)" : "Switch to Dark Mode (Ctrl+D)"}
-          >
-            {isDarkMode ? <Sun className="w-5 h-5" /> : <Moon className="w-5 h-5" />}
-          </button>
-
-          <div className="relative group">
-            <img src="/src/assets/ponz-logo.jpg" alt="PonZ Logo" className="relative w-24 h-24 rounded-2xl shadow-md border border-border object-cover" />
-          </div>
-
-          <div className="space-y-1">
-            <h1 className="text-4xl font-bold tracking-tight text-foreground">
-              Medical Master
-            </h1>
-            <p className="text-xs font-medium text-muted-foreground uppercase opacity-70">
-              Made by PonZ
-            </p>
-          </div>
-
-          <p className="text-muted-foreground text-base max-w-lg">
-            Automated Anki card generation pipeline powered by Gemini 3.0 Flash.
-          </p>
-        </header>
-
-        {/* Configuration (API Key) */}
-        <motion.div
-          initial={{ opacity: 0, y: 10 }}
-          animate={{ opacity: 1, y: 0 }}
-          className="w-full space-y-4"
-        >
-          <div className="flex items-center justify-between">
-            <h2 className="text-xl font-semibold flex items-center gap-2">
-              <Settings className="w-5 h-5" /> Configuration
-            </h2>
-            <button
-              onClick={() => setShowConfig(!showConfig)}
-              className="text-sm text-primary hover:underline"
-            >
-              {showConfig ? "Hide" : "Show"}
-            </button>
-          </div>
-
-          <AnimatePresence>
-            {showConfig && (
-              <motion.div
-                initial={{ height: 0, opacity: 0 }}
-                animate={{ height: "auto", opacity: 1 }}
-                exit={{ height: 0, opacity: 0 }}
-                className="bg-card border border-border rounded-lg p-6 space-y-4 shadow-sm"
-              >
-                <div className="space-y-2">
-                  <label className="text-sm font-medium">Gemini API Key</label>
-                  <input
-                    type="password"
-                    value={apiKey}
-                    onChange={(e) => setApiKey(e.target.value)}
-                    placeholder="Enter your AI Studio API key (starts with AIza...)"
-                    className="w-full p-2 rounded-md bg-input border border-border focus:ring-2 focus:ring-primary outline-none transition-all"
-                  />
-
-                  <p className="text-xs text-muted-foreground">
-                    Your key is used locally and never stored on our servers.
-                  </p>
-                </div>
-
-                <div className="grid grid-cols-2 gap-4">
-                  <div className="space-y-2">
-                    <label className="text-sm font-medium">AnkiConnect URL</label>
-                    <input
-                      type="text"
-                      value={ankiUrl}
-                      onChange={(e) => setAnkiUrl(e.target.value)}
-                      className="w-full p-2 rounded-md bg-input border border-border focus:ring-2 focus:ring-primary outline-none transition-all"
-                    />
-                  </div>
-                  <div className="space-y-2">
-                    <label className="text-sm font-medium">Anki Deck Name</label>
-                    <input
-                      type="text"
-                      value={deckName}
-                      onChange={(e) => setDeckName(e.target.value)}
-                      className="w-full p-2 rounded-md bg-input border border-border focus:ring-2 focus:ring-primary outline-none transition-all"
-                    />
-                  </div>
-                </div>
-              </motion.div>
-            )}
-          </AnimatePresence>
-        </motion.div>
-
-
-        {/* Input Method Tabs */}
-        <div className="w-full">
-          <div className="flex space-x-4 mb-4 border-b border-border">
-            <button
-              onClick={() => setInputMode("file")}
-              className={cn("pb-2 border-b-2 transition-colors font-medium", inputMode === "file" ? "border-primary text-primary" : "border-transparent text-muted-foreground hover:text-foreground")}
-            >
-              Upload File
-            </button>
-            <button
-              onClick={() => setInputMode("text")}
-              className={cn("pb-2 border-b-2 transition-colors font-medium", inputMode === "text" ? "border-primary text-primary" : "border-transparent text-muted-foreground hover:text-foreground")}
-            >
-              Paste Text
-            </button>
-          </div>
-
-          {inputMode === "file" ? (
-            <div className="space-y-4">
-              <label className="flex flex-col items-center justify-center w-full h-40 border-2 border-dashed border-border rounded-lg cursor-pointer hover:border-primary/50 hover:bg-primary/5 transition-all group">
-                <input
-                  type="file"
-                  className="hidden"
-                  accept=".pdf,.txt,.md,.png,.jpg,.jpeg,.webp,.heic"
-                  onChange={(e) => setFile(e.target.files?.[0] || null)}
-                />
-                <div className="flex flex-col items-center justify-center pt-5 pb-6">
-                  {file ? (
-                    <>
-                      <FileText className="w-10 h-10 text-primary mb-2 group-hover:scale-110 transition-transform" />
-                      <p className="text-sm font-medium text-foreground">{file.name}</p>
-                      <p className="text-xs text-muted-foreground">{(file.size / 1024).toFixed(1)} KB</p>
-                    </>
-                  ) : (
-                    <>
-                      <Upload className="w-10 h-10 text-muted-foreground mb-2 group-hover:text-primary transition-colors" />
-                      <p className="text-sm text-muted-foreground">Drop PDF or Text file here</p>
-                      <p className="text-xs text-muted-foreground mt-1">Supports PDF, TXT, MD, Images</p>
-                    </>
-                  )}
-                </div>
-              </label>
-            </div>
-          ) : (
-            <textarea
-              value={textInput}
-              onChange={(e) => setTextInput(e.target.value)}
-              placeholder="Paste your medical text, notes, or article content here..."
-              className="w-full h-40 p-4 rounded-lg bg-input border border-border focus:ring-2 focus:ring-primary outline-none transition-all resize-none text-sm font-mono"
-            />
-          )}
-
-          {/* NEW: Topic Scope Input */}
-          <div className="mt-6 space-y-2">
-            <label className="text-sm font-medium text-foreground flex items-center gap-2">
-              🎯 Topic / Lesson Focus (Optional)
-            </label>
-            <input
-              type="text"
-              value={topicScope}
-              onChange={(e) => setTopicScope(e.target.value)}
-              placeholder="E.g., 'Chương 3: Tim mạch', 'Bài viêm phổi', or leave empty to process all."
-              className="w-full p-3 rounded-md bg-input border border-border focus:ring-2 focus:ring-primary outline-none transition-all placeholder:text-muted-foreground/50"
-            />
-            <p className="text-xs text-muted-foreground">
-              If your file has multiple lessons, specify which one to process here.
-            </p>
-          </div>
-        </div>
-
-        {/* Action Button */}
-        <div className="flex justify-center pt-4">
-          <button
-            onClick={status === "reviewing" ? handleConfirmGeneration : handleAnalyze}
-            disabled={status !== "idle" && status !== "complete" && status !== "error" && status !== "reviewing"}
-            className={cn(
-              "px-8 py-3 rounded-full font-bold text-lg flex items-center gap-2 transition-all shadow-lg hover:shadow-primary/25",
-              status === "idle" || status === "complete" || status === "error" || status === "reviewing"
-                ? "bg-primary text-primary-foreground hover:bg-primary/90 hover:scale-105 active:scale-95"
-                : "bg-muted text-muted-foreground cursor-not-allowed"
-            )}
-          >
-            {status !== "idle" && status !== "complete" && status !== "error" && status !== "reviewing" ? (
-              <>
-                <Loader2 className="w-5 h-5 animate-spin" /> Processing...
-              </>
-            ) : status === "reviewing" ? (
-              <>
-                <Play className="w-5 h-5" /> Start Generation ({selectedChunks.length} chunks)
-              </>
-            ) : (
-              <>
-                <Play className="w-5 h-5" /> Analyze {inputMode === "file" ? "File" : "Text"}
-              </>
-            )}
-          </button>
-        </div>
-
-        {errorMsg && (
-          <div className="bg-destructive/10 text-destructive p-4 rounded-lg flex items-center gap-2">
-            <AlertCircle className="w-5 h-5" />
-            {errorMsg}
-          </div>
-        )}
-
-        {/* Review Outline Panel */}
-        {status === "reviewing" && (
+        {/* --- INPUT SECTION --- */}
+        {status === "idle" || status === "complete" || status === "error" ? (
           <motion.div
-            initial={{ opacity: 0, height: 0 }}
-            animate={{ opacity: 1, height: "auto" }}
-            className="bg-card border border-border rounded-lg p-6 space-y-4 shadow-lg"
+            initial={{ opacity: 0, y: 10 }}
+            animate={{ opacity: 1, y: 0 }}
+            className="bg-card border border-border rounded-lg p-6 space-y-6 shadow-sm"
           >
-            <div className="flex items-center justify-between">
-              <h3 className="text-xl font-bold flex items-center gap-2 text-primary">
-                <FileText className="w-5 h-5" /> Review Outline
-              </h3>
-              <div className="text-sm font-medium bg-secondary text-secondary-foreground px-3 py-1 rounded-full">
-                Estimated: ~{selectedChunks.length * 20}-{selectedChunks.length * 30} cards
-              </div>
-            </div>
-
-            <p className="text-muted-foreground text-sm">
-              Gemini has analyzed your document. Review the outline and <b>select which parts</b> to generate cards for.
-            </p>
-
-            <div className="bg-muted/30 p-4 rounded-md h-48 overflow-y-auto border border-border custom-scrollbar">
-              <pre className="whitespace-pre-wrap text-sm font-mono text-foreground/80">
-                {outlineContent}
-              </pre>
-            </div>
-
-            {/* Selective Generation UI */}
-            <div className="space-y-3">
-              <div className="flex items-center justify-between">
-                <h4 className="text-sm font-semibold text-foreground">📋 Select Chunks to Generate</h4>
-                <div className="flex gap-2">
-                  <button
-                    onClick={() => setSelectedChunks(commands.map((_, i) => i))}
-                    className="text-xs px-2 py-1 rounded bg-primary/10 text-primary hover:bg-primary/20 transition-colors"
-                  >
-                    Select All
-                  </button>
-                  <button
-                    onClick={() => setSelectedChunks([])}
-                    className="text-xs px-2 py-1 rounded bg-muted text-muted-foreground hover:bg-muted/80 transition-colors"
-                  >
-                    Deselect All
-                  </button>
-                </div>
+            <div className="space-y-4">
+              <div className="space-y-2">
+                <label className="text-sm font-medium">Gemini API Key</label>
+                <input
+                  type="password"
+                  value={apiKey}
+                  onChange={(e) => setApiKey(e.target.value)}
+                  className="w-full p-2 rounded-md bg-input border border-border focus:ring-2 focus:ring-primary outline-none transition-all"
+                  placeholder="Enter your Gemini API Key..."
+                />
               </div>
 
-              <div className="max-h-48 overflow-y-auto space-y-2 border border-border rounded-md p-3 bg-background custom-scrollbar">
-                {commands.map((cmd, idx) => (
-                  <label
-                    key={idx}
-                    className={cn(
-                      "flex items-start gap-3 p-2 rounded-md cursor-pointer transition-colors",
-                      selectedChunks.includes(idx) ? "bg-primary/10 border border-primary/30" : "hover:bg-muted/50"
-                    )}
-                  >
-                    <input
-                      type="checkbox"
-                      checked={selectedChunks.includes(idx)}
-                      onChange={(e) => {
-                        if (e.target.checked) {
-                          setSelectedChunks([...selectedChunks, idx].sort((a, b) => a - b));
-                        } else {
-                          setSelectedChunks(selectedChunks.filter(i => i !== idx));
-                        }
-                      }}
-                      className="mt-1 w-4 h-4 rounded border-border text-primary focus:ring-primary"
-                    />
-                    <span className="text-sm text-foreground/80 flex-1">
-                      <span className="font-mono text-xs text-muted-foreground mr-2">#{idx + 1}</span>
-                      {cmd.replace(/^Giai đoạn 2 phần /, "")}
-                    </span>
-                  </label>
-                ))}
+              <FileUpload
+                files={files}
+                setFiles={setFiles}
+                inputMode={inputMode}
+                setInputMode={setInputMode}
+                textInput={textInput}
+                setTextInput={setTextInput}
+              />
+
+              <div className="pt-2">
+                <button
+                  onClick={() => setShowConfig(!showConfig)}
+                  className="text-xs text-muted-foreground hover:text-primary flex items-center gap-1 transition-colors"
+                >
+                  {showConfig ? "Hide Advanced Options" : "Show Advanced Options"}
+                </button>
               </div>
 
-              <p className="text-xs text-muted-foreground">
-                💡 Tip: Bỏ chọn những phần "Đại cương" hoặc "Tổng quan" nếu bạn chỉ muốn học chi tiết.
-              </p>
+              <AnimatePresence>
+                {showConfig && (
+                  <motion.div
+                    initial={{ height: 0, opacity: 0 }}
+                    animate={{ height: "auto", opacity: 1 }}
+                    exit={{ height: 0, opacity: 0 }}
+                    className="overflow-hidden space-y-4"
+                  >
+                    <div className="space-y-2 pt-2">
+                      <label className="text-sm font-medium">Topic Scope (Optional)</label>
+                      <input
+                        value={topicScope}
+                        onChange={(e) => setTopicScope(e.target.value)}
+                        className="w-full p-2 rounded-md bg-input border border-border"
+                        placeholder="e.g. 'Cardiology', 'Chapter 1' (Focuses extraction)"
+                      />
+                    </div>
+                    <div className="grid grid-cols-2 gap-4">
+                      <div>
+                        <label className="text-sm font-medium">Anki Connect URL</label>
+                        <input
+                          value={ankiUrl}
+                          onChange={(e) => setAnkiUrl(e.target.value)}
+                          className="w-full p-2 rounded-md bg-input border border-border"
+                        />
+                      </div>
+                      <div>
+                        <label className="text-sm font-medium">Deck Name</label>
+                        <input
+                          value={deckName}
+                          onChange={(e) => setDeckName(e.target.value)}
+                          className="w-full p-2 rounded-md bg-input border border-border"
+                        />
+                      </div>
+                    </div>
+                  </motion.div>
+                )}
+              </AnimatePresence>
+
+              {errorMsg && (
+                <motion.div
+                  initial={{ opacity: 0, height: 0 }}
+                  animate={{ opacity: 1, height: "auto" }}
+                  className="p-3 bg-destructive/10 text-destructive rounded-md text-sm flex items-center gap-2"
+                >
+                  <AlertCircle className="w-4 h-4" />
+                  {errorMsg}
+                </motion.div>
+              )}
+
+              <button
+                onClick={handleAnalyze}
+                disabled={inputMode === "file" ? files.length === 0 : !textInput.trim()}
+                className={cn(
+                  "w-full py-3 text-primary-foreground font-bold rounded-lg transition-all shadow-lg shadow-primary/20 flex items-center justify-center gap-2",
+                  "bg-primary hover:bg-primary/90 disabled:opacity-50 disabled:cursor-not-allowed"
+                )}
+              >
+                Generate Anki Cards 🚀
+              </button>
             </div>
+          </motion.div>
+        ) : null}
+
+        {/* --- LOGS & PROGRESS --- */}
+        {(status === "uploading" || status === "analyzing" || status === "extracting" || status === "generating") && (
+          <motion.div
+            initial={{ opacity: 0, y: 10 }}
+            animate={{ opacity: 1, y: 0 }}
+            className="bg-muted/50 p-4 rounded-lg font-mono text-xs max-h-60 overflow-y-auto space-y-1 border border-border"
+          >
+            {logs.map((log, i) => (
+              <div key={i} className="text-muted-foreground break-words">{log}</div>
+            ))}
+            <div ref={logsEndRef} />
           </motion.div>
         )}
 
-        {/* Progress & Logs */}
-        {(status !== "idle" || logs.length > 0) && (
-          <div className="space-y-4">
-
-            {/* Progress Bar */}
-            {(status === "generating" || status === "complete") && (
-              <div className="w-full space-y-2">
-                <div className="flex justify-between text-xs text-muted-foreground uppercase font-semibold tracking-wider">
-                  <span>Progress</span>
-                  <span>{Math.round(progress)}%</span>
-                </div>
-                <div className="h-2 bg-muted rounded-full overflow-hidden">
-                  <motion.div
-                    className="h-full bg-primary"
-                    initial={{ width: 0 }}
-                    animate={{ width: `${progress}%` }}
-                    transition={{ duration: 0.5 }}
-                  />
-                </div>
-              </div>
-            )}
-
-            <div className="bg-black/80 text-green-400 font-mono text-sm p-4 rounded-lg border border-border h-64 overflow-y-auto shadow-inner custom-scrollbar">
-              {logs.map((log, i) => (
-                <div key={i} className="mb-1 border-l-2 border-green-700 pl-2">
-                  <span className="opacity-50 mr-2">{new Date().toLocaleTimeString()}</span>
-                  {log}
-                </div>
-              ))}
-              <div ref={logsEndRef} />
-            </div>
-          </div>
-        )}
-
-        {/* Results with Edit Mode */}
+        {/* --- RESULTS --- */}
         {(status === "complete" || generatedCards.length > 0) && (
           <motion.div
             initial={{ opacity: 0, scale: 0.95 }}
@@ -1056,31 +834,17 @@ export default function App() {
           >
             <div className="flex flex-col md:flex-row items-center justify-between gap-4">
               <h2 className="text-2xl font-bold text-green-500 flex items-center gap-2">
-                <CheckCircle className="w-6 h-6" /> Generated Cards ({generatedCards.length})
+                <CheckCircle className="w-6 h-6" /> Generated ({generatedCards.length})
               </h2>
               <div className="flex items-center gap-2">
-                <button
-                  onClick={() => setShowStats(!showStats)}
-                  className={cn(
-                    "px-3 py-2 rounded-md text-sm font-medium transition-colors border border-border flex items-center gap-2",
-                    showStats ? "bg-primary text-primary-foreground" : "hover:bg-accent"
-                  )}
-                  title="Show/Hide Statistics"
-                >
-                  <BarChart3 className="w-4 h-4" />
-                </button>
-                <button
-                  onClick={clearHistory}
-                  className="px-3 py-2 text-destructive hover:bg-destructive/10 rounded-md text-sm font-medium transition-colors"
-                >
-                  Clear History
-                </button>
                 <button
                   onClick={handleSyncAnki}
                   disabled={syncStatus === "syncing"}
                   className={cn(
                     "px-4 py-2 rounded-md font-medium flex items-center gap-2 transition-colors border border-border",
-                    syncStatus === "success" ? "bg-green-100 text-green-700 hover:bg-green-200" : "bg-card hover:bg-accent hover:text-accent-foreground"
+                    syncStatus === "success"
+                      ? "bg-green-100 text-green-700 hover:bg-green-200"
+                      : "bg-card hover:bg-accent hover:text-accent-foreground"
                   )}
                 >
                   {syncStatus === "syncing" ? <Loader2 className="w-4 h-4 animate-spin" /> : <RefreshCw className="w-4 h-4" />}
@@ -1095,193 +859,51 @@ export default function App() {
                     className="bg-transparent text-sm px-2 py-2 outline-none cursor-pointer"
                   >
                     <option value="csv">CSV</option>
-                    <option value="md">Markdown</option>
+                    <option value="md">MD</option>
                     <option value="json">JSON</option>
                   </select>
                   <button
                     onClick={handleExport}
                     className="bg-primary hover:bg-primary/90 text-primary-foreground px-4 py-2 font-medium flex items-center gap-2 transition-colors"
                   >
-                    <Download className="w-4 h-4" /> Export
+                    <Download className="w-4 h-4" />
                   </button>
                 </div>
               </div>
             </div>
 
-            {/* Statistics Panel */}
-            <AnimatePresence>
-              {showStats && (
-                <motion.div
-                  initial={{ opacity: 0, height: 0 }}
-                  animate={{ opacity: 1, height: "auto" }}
-                  exit={{ opacity: 0, height: 0 }}
-                  className="overflow-hidden"
-                >
-                  <div className="grid grid-cols-2 md:grid-cols-4 gap-4 p-4 bg-muted/30 rounded-lg border border-border">
-                    <div className="text-center">
-                      <p className="text-2xl font-bold text-primary">
-                        {generatedCards.reduce((acc, chunk) => acc + chunk.split("\n").filter(line => line.trim().startsWith('"')).length, 0)}
-                      </p>
-                      <p className="text-xs text-muted-foreground uppercase">Total Cards</p>
-                    </div>
-                    <div className="text-center">
-                      <p className="text-2xl font-bold text-foreground">{generatedCards.length}</p>
-                      <p className="text-xs text-muted-foreground uppercase">Chunks</p>
-                    </div>
-                    <div className="text-center">
-                      <p className="text-2xl font-bold text-yellow-500">{stats?.retriedChunks || 0}</p>
-                      <p className="text-xs text-muted-foreground uppercase">Retried</p>
-                    </div>
-                    <div className="text-center">
-                      <p className="text-2xl font-bold text-red-500">{stats?.blockedChunks || 0}</p>
-                      <p className="text-xs text-muted-foreground uppercase">Blocked</p>
-                    </div>
-                  </div>
-                  {stats && (
-                    <div className="mt-2 text-center text-xs text-muted-foreground">
-                      ⏱️ Generated in {calculateStats()?.duration || "N/A"} •
-                      ~{calculateStats()?.cardsPerMinute || 0} cards/min
-                    </div>
-                  )}
-                </motion.div>
-              )}
-            </AnimatePresence>
-
-            {/* Keyboard Shortcuts Hint */}
-            <div className="text-xs text-muted-foreground text-center border-t border-border pt-3">
-              ⌨️ <kbd className="px-1.5 py-0.5 bg-muted rounded text-xs">Ctrl+S</kbd> Download CSV •
-              <kbd className="px-1.5 py-0.5 bg-muted rounded text-xs ml-2">Ctrl+D</kbd> Toggle Theme •
-              <kbd className="px-1.5 py-0.5 bg-muted rounded text-xs ml-2">Ctrl+Enter</kbd> Analyze/Generate
+            <div className="flex justify-end">
+              <button
+                onClick={() => setShowStats(!showStats)}
+                className="text-xs text-muted-foreground hover:text-primary flex items-center gap-1 transition-colors"
+              >
+                {showStats ? "Hide Statistics" : "Show Statistics"}
+              </button>
             </div>
 
-            {/* View Mode Toggle */}
-            <div className="flex items-center justify-between border-t border-border pt-4">
-              <span className="text-sm font-medium text-muted-foreground">View Mode:</span>
-              <div className="flex rounded-lg border border-border overflow-hidden">
-                <button
-                  onClick={() => setViewMode("preview")}
-                  className={cn(
-                    "px-4 py-2 text-sm font-medium transition-colors",
-                    viewMode === "preview" ? "bg-primary text-primary-foreground" : "hover:bg-accent"
-                  )}
-                >
-                  🎴 Preview
-                </button>
-                <button
-                  onClick={() => setViewMode("raw")}
-                  className={cn(
-                    "px-4 py-2 text-sm font-medium transition-colors border-l border-border",
-                    viewMode === "raw" ? "bg-primary text-primary-foreground" : "hover:bg-accent"
-                  )}
-                >
-                  📝 Raw CSV
-                </button>
-              </div>
-            </div>
+            <StatsPanel
+              showStats={showStats}
+              stats={stats}
+              generatedCardsCount={generatedCards.length}
+              totalParsedCards={calculateStats()?.totalCards || 0}
+              durationString={calculateStats()?.duration || "N/A"}
+              cardsPerMinute={calculateStats()?.cardsPerMinute || 0}
+            />
 
-            {/* Search Bar */}
-            {viewMode === "preview" && (
-              <div className="relative">
-                <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
-                <input
-                  type="text"
-                  value={searchQuery}
-                  onChange={(e) => setSearchQuery(e.target.value)}
-                  placeholder="Search cards by question or answer..."
-                  className="w-full pl-10 pr-4 py-2 rounded-lg bg-input border border-border focus:ring-2 focus:ring-primary outline-none transition-all text-sm"
-                />
-                {searchQuery && (
-                  <button
-                    onClick={() => setSearchQuery("")}
-                    className="absolute right-3 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground"
-                  >
-                    <X className="w-4 h-4" />
-                  </button>
-                )}
-              </div>
-            )}
-
-            {/* Card Display Area */}
-            {viewMode === "preview" ? (
-              /* Preview Mode - FlipCards */
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-4 max-h-[600px] overflow-y-auto pr-2 custom-scrollbar">
-                {filteredCards.length === 0 ? (
-                  <div className="col-span-2 text-center py-12 text-muted-foreground">
-                    {searchQuery ? "No cards match your search." : "No cards generated yet."}
-                  </div>
-                ) : filteredCards.map((card, idx) => (
-                  <motion.div
-                    key={`${card.chunkIdx}-${card.cardIdx}`}
-                    className="relative"
-                    initial={{ opacity: 0, y: 20 }}
-                    animate={{ opacity: 1, y: 0 }}
-                    transition={{ delay: idx * 0.02 }}
-                  >
-                    <div
-                      onClick={() => toggleCardFlip(idx)}
-                      className="cursor-pointer transition-all duration-500"
-                      style={{
-                        transformStyle: "preserve-3d",
-                        transform: flippedCards.has(idx) ? "rotateY(180deg)" : "rotateY(0deg)",
-                      }}
-                    >
-                      {/* Front - Question */}
-                      {!flippedCards.has(idx) ? (
-                        <div className="min-h-[180px] rounded-xl border-2 border-primary/30 bg-gradient-to-br from-primary/5 to-primary/10 p-4 flex flex-col">
-                          <div className="flex items-center justify-between mb-2">
-                            <span className="text-xs font-bold text-primary uppercase">Question</span>
-                            <span className="text-xs text-muted-foreground">#{idx + 1}</span>
-                          </div>
-                          <p className="text-sm text-foreground flex-1 overflow-y-auto">{card.question}</p>
-                          <p className="text-xs text-muted-foreground mt-2 text-center">👆 Click to reveal answer</p>
-                        </div>
-                      ) : (
-                        /* Back - Answer */
-                        <div className="min-h-[180px] rounded-xl border-2 border-green-500/30 bg-gradient-to-br from-green-500/5 to-green-500/10 p-4 flex flex-col">
-                          <div className="flex items-center justify-between mb-2">
-                            <span className="text-xs font-bold text-green-500 uppercase">Answer</span>
-                            <span className="text-xs text-muted-foreground">#{idx + 1}</span>
-                          </div>
-                          <div
-                            className="text-sm text-foreground flex-1 overflow-y-auto"
-                            dangerouslySetInnerHTML={{ __html: card.answer }}
-                          />
-                          <p className="text-xs text-muted-foreground mt-2 text-center">👆 Click to flip back</p>
-                        </div>
-                      )}
-                    </div>
-                  </motion.div>
-                ))}
-              </div>
-            ) : (
-              /* Raw Mode - Editable CSV */
-              <div className="space-y-4 max-h-[600px] overflow-y-auto pr-2 custom-scrollbar">
-                {generatedCards.map((card, idx) => (
-                  <div key={idx} className="p-4 rounded-lg bg-muted/30 border border-border space-y-3 group relative">
-                    <button
-                      onClick={() => handleDeleteCard(idx)}
-                      className="absolute top-2 right-2 opacity-0 group-hover:opacity-100 p-1 text-destructive hover:bg-destructive/10 rounded transition-all"
-                      title="Delete Chunk"
-                    >
-                      <Trash2 className="w-4 h-4" />
-                    </button>
-
-                    <div className="space-y-1">
-                      <label className="text-xs font-bold text-muted-foreground uppercase">CSV Content (Chunk {idx + 1})</label>
-                      <textarea
-                        value={card}
-                        onChange={(e) => handleCardUpdate(idx, e.target.value)}
-                        className="w-full p-2 bg-background border border-border rounded-md text-sm font-mono text-muted-foreground focus:ring-1 focus:ring-primary outline-none min-h-[150px]"
-                      />
-                    </div>
-                  </div>
-                ))}
-              </div>
-            )}
+            <CardList
+              viewMode={viewMode}
+              setViewMode={setViewMode}
+              generatedCards={generatedCards}
+              filteredCards={filteredCards}
+              searchQuery={searchQuery}
+              setSearchQuery={setSearchQuery}
+              handleDeleteCard={handleDeleteCard}
+              handleCardUpdate={handleCardUpdate}
+              flippedCards={flippedCards}
+              toggleCardFlip={toggleCardFlip}
+            />
           </motion.div>
         )}
-
-
       </div>
     </div>
   );

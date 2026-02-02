@@ -1,5 +1,7 @@
 import { GoogleGenAI, createUserContent } from "@google/genai";
 
+export type ContentPart = { inlineData: { data: string; mimeType: string } } | string;
+
 export class GeminiService {
     private ai: GoogleGenAI;
     private modelName = "gemini-3-flash-preview";
@@ -7,7 +9,7 @@ export class GeminiService {
 
     // Store params for auto-refresh
     private lastSystemPrompt: string = "";
-    private lastContent: { inlineData: { data: string; mimeType: string } } | string | null = null;
+    private lastContent: ContentPart | ContentPart[] | null = null;
 
     constructor(apiKey: string) {
         this.ai = new GoogleGenAI({ apiKey });
@@ -17,16 +19,18 @@ export class GeminiService {
      * Create a cache with the given content (file or text).
      * The cache can then be used for subsequent generateContent calls.
      * @param systemInstruction - The system prompt to cache
-     * @param content - The content to cache (inline data or text)
+     * @param content - The content to cache (inline data or text, or array of them)
      * @returns The cache name for later reference
      */
     async createCache(
         systemInstruction: string,
-        content: { inlineData: { data: string; mimeType: string } } | string
+        content: ContentPart | ContentPart[]
     ): Promise<string> {
-        const contentParts = typeof content === "string"
-            ? [{ text: content }]
-            : [content];
+        const contentInput = Array.isArray(content) ? content : [content];
+
+        const contentParts = contentInput.map(c =>
+            typeof c === "string" ? { text: c } : c
+        );
 
         // Save for auto-recovery
         this.lastSystemPrompt = systemInstruction;
