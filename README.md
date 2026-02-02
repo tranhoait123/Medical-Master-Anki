@@ -25,14 +25,15 @@ Công cụ này không chỉ là một cái "máy copy paste". Nó được tíc
 
 ---
 
-## ✨ Tính Năng Nổi Bật (v1.6.0)
+## ✨ Tính Năng Nổi Bật (v1.6.1)
 
 ### 1. 🧠 Gemini 3.0 Flash Power
 
 Sử dụng model mới nhất của Google (2025/2026) với tốc độ xử lý "ánh sáng" và khả năng hiểu ngữ cảnh khổng lồ.
 
 * **Đọc đa phương tiện:** PDF, Ảnh chụp vở (OCR viết tay cực đỉnh), Text.
-* **Context Caching:** (Mới) Tự động ghi nhớ tài liệu, giúp giảm 90% chi phí API và tăng tốc độ xử lý khi tạo hàng nghìn thẻ.
+* **Context Caching:** Tự động ghi nhớ tài liệu, giúp giảm 90% chi phí API và tăng tốc độ xử lý.
+* **Rate Limit Protection:** Tự động delay giữa các request để tránh bị chặn bởi API.
 
 ### 2. 🛡️ Strict Grounding (Chống ảo giác)
 
@@ -154,6 +155,7 @@ Xong! Mở trình duyệt tại `http://localhost:5173` và bắt đầu thôi.
 
 | Version | Ngày | Thay đổi nổi bật |
 | :--- | :--- | :--- |
+| **v1.6.1** | 02/2026 | Bug fixes: CSV parsing, memory leak, rate limits, localStorage limit, cache cleanup. |
 | **v1.6.0** | 02/2026 | CSV Export, Auto Retry (Paraphrase Mode) khi bị Recitation Filter. |
 | **v1.5.0** | 02/2026 | Auto-Refresh Cache, Selective Generation, UI Polish. |
 | **v1.4.0** | 02/2026 | Explicit Context Caching (Tiết kiệm 90% token). |
