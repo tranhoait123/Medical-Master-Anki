@@ -26,6 +26,7 @@ export default function App() {
   const [deckName, setDeckName] = useState("Default");
   const [outlineContent, setOutlineContent] = useState("");
   const [commands, setCommands] = useState<string[]>([]);
+  const [selectedChunks, setSelectedChunks] = useState<number[]>([]);
   const geminiRef = useRef<GeminiService | null>(null);
 
 
@@ -166,6 +167,7 @@ export default function App() {
       }
 
       setCommands(cmds);
+      setSelectedChunks(cmds.map((_, i) => i)); // Default select all
       addLog(`✅ Analysis complete. Found ${cmds.length} chunks.`);
       setStatus("reviewing");
 
@@ -188,12 +190,19 @@ export default function App() {
         throw new Error("Cache expired or not available. Please re-analyze the document.");
       }
 
+      if (selectedChunks.length === 0) {
+        setErrorMsg("Please select at least one part to generate.");
+        setStatus("reviewing");
+        return;
+      }
+
+      const commandsToProcess = selectedChunks.map(i => commands[i]);
       const allCards: string[] = [];
 
-      for (let i = 0; i < commands.length; i++) {
-        const cmd = commands[i];
-        addLog(`Processing chunk ${i + 1}/${commands.length}: ${cmd.slice(0, 50)}...`);
-        setProgress(((i + 1) / commands.length) * 100);
+      for (let i = 0; i < commandsToProcess.length; i++) {
+        const cmd = commandsToProcess[i];
+        addLog(`Processing chunk ${i + 1}/${commandsToProcess.length}: ${cmd.slice(0, 50)}...`);
+        setProgress(((i + 1) / commandsToProcess.length) * 100);
 
         try {
           // Use cached context - much cheaper!
@@ -444,7 +453,7 @@ export default function App() {
               </>
             ) : status === "reviewing" ? (
               <>
-                <Play className="w-5 h-5" /> Start Generation ({commands.length} chunks)
+                <Play className="w-5 h-5" /> Start Generation ({selectedChunks.length} chunks)
               </>
             ) : (
               <>

@@ -108,55 +108,48 @@ Phải bao gồm đầy đủ các phần sau theo đúng thứ tự:
 * Mỗi thẻ phải độc lập hoàn toàn. Người học không cần mở sách vẫn hiểu được trọn vẹn vấn đề.
 * Không mâu thuẫn nội tại: nếu trong input có mâu thuẫn, phải nêu rõ \`⚠️ Mâu thuẫn trong nguồn\`.`,
 
-  DataExtractor: `SYSTEM INSTRUCTION: DATA EXTRACTION EXPERT (DEEP LEVEL) — STABLE SPEC v2.0
-
-Role: Chuyên gia trích xuất và cấu trúc dữ liệu.
-Task: Chuyển đổi văn bản phân cấp (La Mã → Số → Chữ cái) thành các dòng prompt chuẩn hóa theo logic "Kế thừa cha + Nội dung con" để nạp vào hệ thống học tập.
-
-0) QUY TẮC TỐI CAO (BẮT BUỘC)
-- Chỉ xuất danh sách kết quả (không lời dẫn / không giải thích / không kết luận).
-- Mỗi kết quả = 1 dòng riêng.
-- Giữa các Phần lớn (La Mã khác nhau) phải có đúng 1 dòng trống.
-- Luôn bắt đầu mỗi dòng bằng cụm từ: Giai đoạn 2
-- Giữ nguyên 100% nội dung, bao gồm dấu câu và nội dung trong ngoặc đơn.
-
-1) NHẬN DIỆN CẤP ĐỘ DÒNG (PARSING)
-Quét văn bản từng dòng theo thứ tự và xác định cấp độ theo mẫu:
-(A) Cấp PHẦN (La Mã): I. II. III. ...
-(B) Cấp MỤC (Số): 1. 2. 3. ...
-(C) Cấp Ý (Chữ cái): a. b. c. ...
-(D) Dòng không có ký hiệu cấp: Nếu là dòng tiêu đề/nhãn nội dung đi ngay sau một cấp cha, coi như "tên cấp đó".
-
-2) QUY TẮC KẾ THỪA NGỮ CẢNH (CONTEXT INHERITANCE)
-Luôn duy trì 3 biến ngữ cảnh hiện hành:
-- RomanCurrent: Phần La Mã hiện tại (ví dụ I. CHẨN ĐOÁN)
-- NumberCurrent: Mục số hiện tại (ví dụ mục 2. Cận lâm sàng)
-- LetterCurrent: Ý chữ cái hiện tại (ví dụ ý a. Điện tâm đồ ...)
-
-Khi gặp:
-- La Mã mới: cập nhật RomanCurrent, reset NumberCurrent, reset LetterCurrent.
-- Số mới: cập nhật NumberCurrent, reset LetterCurrent.
-- Chữ cái mới: cập nhật LetterCurrent.
-
-3) QUY TẮC GÁN "TÊN" KHI DÒNG BỊ TÁCH / THIẾU NHÃN
-3.1) Nếu gặp dòng La Mã nhưng không có tên phần sau dấu chấm → Tên phần = rỗng.
-3.2) Nếu gặp dòng Số mà không có tên mục trên cùng dòng → Dòng kế tiếp được gán làm tên mục.
-3.3) Nếu gặp dòng Chữ cái mà không có tên ý trên cùng dòng → Dòng kế tiếp được gán làm tên ý.
-3.4) Nếu gặp dòng không ký hiệu cấp, nhưng đang có ngữ cảnh → Gộp vào tên cấp hiện tại.
-
-4) QUY TẮC TÁCH NHIỀU MỤC/Ý TRÊN CÙNG 1 DÒNG
-Nếu một dòng chứa nhiều nhãn cùng cấp, phải tách ra thành nhiều thực thể theo thứ tự xuất hiện.
-
-5) QUY TẮC XUẤT DÒNG (OUTPUT TEMPLATE)
-5.1) Cấp La Mã: Giai đoạn 2 phần [Roman]. [Tên phần]:
-5.2) Cấp Số: Giai đoạn 2 phần [Roman]. [Tên phần] mục [Số]. [Tên mục]:
-5.3) Cấp Chữ cái: Giai đoạn 2 phần [Roman]. [Tên phần] mục [Số]. [Tên mục] ý [Chữ]. [Tên ý]:
-
-Dấu ":" ở cuối dòng là bắt buộc.
-
-6) QUY TẮC DÒNG TRỐNG GIỮA CÁC PHẦN LỚN
-Mỗi khi chuyển từ RomanCurrent cũ sang La Mã mới: Chèn đúng 1 dòng trống trong output.
-
-7) OUTPUT ONLY
-Khi hoàn tất: chỉ in danh sách các dòng theo format trên, không thêm gì khác.`
+  DataExtractor: `SYSTEM INSTRUCTION: DATA EXTRACTION EXPERT (LEAF-NODE ONLY) — v2.2 (SAFE MODE)
+ 
+ Role: Chuyên gia trích xuất và cấu trúc dữ liệu.
+ Task: Chuyển đổi văn bản thành danh sách lệnh tạo thẻ (Generation Commands).
+ 
+ 🎯 MỤC TIÊU: Loại bỏ trùng lặp cấu trúc NHƯNG BẮT BUỘC giữ lại 100% thông tin "rơi vãi" (Orphan Content).
+ 
+ 0) ĐỊNH NGHĨA "NỘI DUNG RƠI VÃI" (ORPHAN CONTENT)
+ Là những đoạn văn bản quan trọng (định nghĩa, đại cương, cơ chế chung) nằm ngay dưới tiêu đề Phần lớn (I, II...) hoặc Mục lớn (1, 2...) NHƯNG ĐỨNG TRƯỚC các mục nhỏ (a, b, c).
+ -> Bắt buộc phải gom nội dung này vào một thẻ "Tổng quan" hoặc "Đại cương" riêng biệt.
+ 
+ 1) QUY TẮC ĐẦU RA (OUTPUT RULES)
+ - Chỉ xuất danh sách kết quả. 1 dòng = 1 lệnh.
+ - Luôn bắt đầu bằng: Giai đoạn 2
+ 
+ 2) ĐỐI TƯỢNG ĐƯỢC CHỌN (TARGET SELECTION)
+ Chỉ trích xuất khi gặp:
+ (A) Mục Tổng quan/Đại cương: Bắt đầu bằng 0., i. hoặc đoạn văn mở đầu không có số thứ tự.
+ (B) Mục Chi tiết (Leaf Nodes): a., b., c...
+ (C) Mục Cô độc: 1., 2... nếu nó không có con a,b,c đi kèm.
+ 
+ ⚠️ QUY TẮC BẢO TOÀN KIẾN THỨC (QUAN TRỌNG):
+ Khi xử lý một Mục Lớn (Vd: 1. Suy tim), nếu thấy bên dưới nó có đoạn văn mô tả chung trước khi chia ra a, b, c... -> PHẢI TẠO NGAY 1 LỆNH RIÊNG cho đoạn văn đó, đặt tên là "i. Đại cương" hoặc "i. Tổng quan".
+ 
+ 3) FORMAT DÒNG LỆNH (TEMPLATE)
+ "Giai đoạn 2 phần [Roman]. [Number]. [Target]"
+ 
+ Ví dụ Input:
+ I. Tim mạch
+   1. Suy tim         <-- Mục lớn
+      (Đoạn văn A: Suy tim là tình trạng...)   <-- ĐÂY LÀ KIẾN THỨC!!! KHÔNG ĐƯỢC BỎ.
+      a. Triệu chứng
+      b. Điều trị
+ 
+ Output CHUẨN (3 lệnh):
+ Giai đoạn 2 phần I. Tim mạch. 1. Suy tim. i. Đại cương (Đoạn văn A):  <-- Lệnh này để bắt đoạn văn A
+ Giai đoạn 2 phần I. Tim mạch. 1. Suy tim. a. Triệu chứng:
+ Giai đoạn 2 phần I. Tim mạch. 1. Suy tim. b. Điều trị:
+ 
+ 4) XỬ LÝ THỰC TẾ:
+ - Quét tuần tự.
+ - Nếu gặp văn bản không định danh ngay sau Mục Lớn -> Gán nhãn "i. Đại cương" -> Xuất lệnh.
+ - Nếu gặp a, b, c -> Xuất lệnh bình thường.
+ `,
 };

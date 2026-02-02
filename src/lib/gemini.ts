@@ -5,6 +5,10 @@ export class GeminiService {
     private modelName = "gemini-3-flash-preview";
     private cacheName: string | null = null;
 
+    // Store params for auto-refresh
+    private lastSystemPrompt: string = "";
+    private lastContent: { inlineData: { data: string; mimeType: string } } | string | null = null;
+
     constructor(apiKey: string) {
         this.ai = new GoogleGenAI({ apiKey });
     }
@@ -23,6 +27,10 @@ export class GeminiService {
         const contentParts = typeof content === "string"
             ? [{ text: content }]
             : [content];
+
+        // Save for auto-recovery
+        this.lastSystemPrompt = systemInstruction;
+        this.lastContent = content;
 
         const cache = await this.ai.caches.create({
             model: this.modelName,
@@ -48,15 +56,38 @@ export class GeminiService {
             throw new Error("No cache available. Call createCache first.");
         }
 
-        const response = await this.ai.models.generateContent({
-            model: this.modelName,
-            contents: prompt,
-            config: {
-                cachedContent: this.cacheName,
-            },
-        });
+        try {
+            const response = await this.ai.models.generateContent({
+                model: this.modelName,
+                contents: prompt,
+                config: {
+                    cachedContent: this.cacheName,
+                },
+            });
+            return response.text ?? "";
+        } catch (error: unknown) {
+            // Check for cache expiration (404 typically indicates cache not found)
+            const err = error as { status?: number; message?: string };
+            if (err.status === 404 || (err.message && err.message.includes("not found"))) {
+                console.warn("Cache expired or not found. Attempting to refresh...", error);
 
-        return response.text ?? "";
+                if (this.lastSystemPrompt && this.lastContent) {
+                    // Re-create cache
+                    await this.createCache(this.lastSystemPrompt, this.lastContent);
+
+                    // Retry request with new cache
+                    const response = await this.ai.models.generateContent({
+                        model: this.modelName,
+                        contents: prompt,
+                        config: {
+                            cachedContent: this.cacheName!,
+                        },
+                    });
+                    return response.text ?? "";
+                }
+            }
+            throw error; // Re-throw if not a cache error or can't recover
+        }
     }
 
     /**
