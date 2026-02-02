@@ -200,10 +200,18 @@ export default function App() {
       const allCards: string[] = [];
       const conceptHistory: string[] = []; // Store generated questions to prevent duplicates
 
+      // Helper function for delay (rate limit protection)
+      const delay = (ms: number) => new Promise(resolve => setTimeout(resolve, ms));
+
       for (let i = 0; i < commandsToProcess.length; i++) {
         const cmd = commandsToProcess[i];
         addLog(`Processing chunk ${i + 1}/${commandsToProcess.length}: ${cmd.slice(0, 50)}...`);
         setProgress(((i + 1) / commandsToProcess.length) * 100);
+
+        // Rate limit protection: wait 1.5s between requests (allows ~40 req/min, under 60 limit)
+        if (i > 0) {
+          await delay(1500);
+        }
 
         try {
           // Use cached context - much cheaper!
