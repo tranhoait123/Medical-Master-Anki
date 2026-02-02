@@ -215,8 +215,22 @@ export default function App() {
           const cardOutput = await gemini.generateWithCache(
             `USER COMMAND: ${cmd}\n\nCRITICAL INSTRUCTION: Analyze the cached document ONLY. Do NOT use external knowledge.${historyText}`
           );
-          const cleanOutput = cardOutput.replace(/```/g, "").trim();
-          allCards.push(cleanOutput);
+
+          // Clean output: remove code blocks and extract only valid CSV lines
+          const rawOutput = cardOutput.replace(/```(?:csv)?/gi, "").trim();
+
+          // Filter to keep only valid CSV lines: "Question","Answer"
+          const csvLines = rawOutput.split('\n')
+            .map(line => line.trim())
+            .filter(line => {
+              // Match lines that start with " and contain "," pattern (CSV format)
+              return line.startsWith('"') && line.includes('","');
+            });
+
+          const cleanOutput = csvLines.join('\n');
+          if (cleanOutput) {
+            allCards.push(cleanOutput);
+          }
 
           // Extract Questions/Concepts from output to add to history
           // Assuming format: "Question","Answer"
