@@ -1,30 +1,97 @@
-import { GoogleGenerativeAI, GenerativeModel } from "@google/generative-ai";
-import type { Part } from "@google/generative-ai";
+import { GoogleGenAI, createUserContent } from "@google/genai";
 
 export class GeminiService {
-    private genAI: GoogleGenerativeAI;
-    private model: GenerativeModel;
+    private ai: GoogleGenAI;
+    private modelName = "gemini-3-flash-preview";
+    private cacheName: string | null = null;
 
     constructor(apiKey: string) {
-        this.genAI = new GoogleGenerativeAI(apiKey);
-        // Using Gemini 3.0 Flash Preview as requested for top-tier performance
-        this.model = this.genAI.getGenerativeModel({ model: "gemini-3-flash-preview" });
+        this.ai = new GoogleGenAI({ apiKey });
     }
 
-    async generateContent(prompt: string | (string | Part)[]): Promise<string> {
-        const result = await this.model.generateContent(prompt);
-        const response = await result.response;
-        return response.text();
+    /**
+     * Create a cache with the given content (file or text).
+     * The cache can then be used for subsequent generateContent calls.
+     * @param systemInstruction - The system prompt to cache
+     * @param content - The content to cache (inline data or text)
+     * @returns The cache name for later reference
+     */
+    async createCache(
+        systemInstruction: string,
+        content: { inlineData: { data: string; mimeType: string } } | string
+    ): Promise<string> {
+        const contentParts = typeof content === "string"
+            ? [{ text: content }]
+            : [content];
+
+        const cache = await this.ai.caches.create({
+            model: this.modelName,
+            config: {
+                contents: createUserContent(contentParts),
+                systemInstruction: systemInstruction,
+                ttl: "3600s", // 1 hour
+            },
+        });
+
+        this.cacheName = cache.name!;
+        return this.cacheName;
     }
 
-    async generateContentStream(prompt: string | (string | Part)[], onChunk: (text: string) => void): Promise<string> {
-        const result = await this.model.generateContentStream(prompt);
-        let fullText = "";
-        for await (const chunk of result.stream) {
-            const chunkText = chunk.text();
-            fullText += chunkText;
-            onChunk(fullText);
+    /**
+     * Generate content using the cached context.
+     * This is much more token-efficient for repeated calls.
+     * @param prompt - The specific prompt/command for this generation
+     * @returns The generated text
+     */
+    async generateWithCache(prompt: string): Promise<string> {
+        if (!this.cacheName) {
+            throw new Error("No cache available. Call createCache first.");
         }
-        return fullText;
+
+        const response = await this.ai.models.generateContent({
+            model: this.modelName,
+            contents: prompt,
+            config: {
+                cachedContent: this.cacheName,
+            },
+        });
+
+        return response.text ?? "";
+    }
+
+    /**
+     * Generate content without caching (for one-off requests or small inputs).
+     * Falls back to standard generation.
+     * @param prompt - The prompt string
+     * @returns The generated text
+     */
+    async generateContent(prompt: string): Promise<string> {
+        const response = await this.ai.models.generateContent({
+            model: this.modelName,
+            contents: prompt,
+        });
+
+        return response.text ?? "";
+    }
+
+    /**
+     * Delete the current cache to free resources.
+     */
+    async deleteCache(): Promise<void> {
+        if (this.cacheName) {
+            try {
+                await this.ai.caches.delete({ name: this.cacheName });
+            } catch (e) {
+                console.warn("Failed to delete cache:", e);
+            }
+            this.cacheName = null;
+        }
+    }
+
+    /**
+     * Check if a cache is currently active.
+     */
+    hasCache(): boolean {
+        return this.cacheName !== null;
     }
 }

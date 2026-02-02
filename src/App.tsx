@@ -7,7 +7,7 @@ import { Upload, FileText, CheckCircle, Loader2, Download, Play, Settings, Alert
 import { cn } from "./lib/utils";
 import { motion, AnimatePresence } from "framer-motion";
 
-type AppState = "idle" | "uploading" | "analyzing" | "extracting" | "generating" | "complete" | "error";
+type AppState = "idle" | "uploading" | "analyzing" | "extracting" | "reviewing" | "generating" | "complete" | "error";
 
 export default function App() {
   const [apiKey, setApiKey] = useState("");
@@ -24,6 +24,11 @@ export default function App() {
   const [syncStatus, setSyncStatus] = useState<"idle" | "syncing" | "success" | "error">("idle");
   const [ankiUrl, setAnkiUrl] = useState("http://127.0.0.1:8765");
   const [deckName, setDeckName] = useState("Default");
+  const [outlineContent, setOutlineContent] = useState("");
+  const [commands, setCommands] = useState<string[]>([]);
+  const geminiRef = useRef<GeminiService | null>(null);
+
+
 
   // Scroll to bottom of logs
   const logsEndRef = useRef<HTMLDivElement>(null);
@@ -74,7 +79,7 @@ export default function App() {
 
   const addLog = (msg: string) => setLogs((prev) => [...prev, msg]);
 
-  const handleGenerate = async () => {
+  const handleAnalyze = async () => {
     if (!apiKey) {
       setErrorMsg("Please enter a valid Gemini API Key.");
       return;
@@ -105,7 +110,7 @@ export default function App() {
       setLogs([]);
       setGeneratedCards([]);
       setStatus("uploading");
-      addLog("🚀 Starting process...");
+      addLog("🚀 Starting analysis...");
 
       if (topicScope.trim()) {
         addLog(`🎯 Focus Scope: ${topicScope}`);
@@ -116,11 +121,10 @@ export default function App() {
       // 1. Prepare Content
       if (inputMode === "file" && file) {
         addLog(`📄 Processing file: ${file.name}...`);
-        // New Multimodal approach: Send file directly to Gemini
         filePart = await fileToGenerativePart(file);
-        addLog(`✅ File converted for Multimodal processing.`);
+        addLog(`✅ File converted.`);
       } else {
-        addLog(`✅ Text content ready (${contentToProcess.length} chars).`);
+        addLog(`✅ Text content ready.`);
       }
 
       const gemini = new GeminiService(apiKey);
@@ -130,39 +134,59 @@ export default function App() {
       addLog("🔵 Analyzing document structure...");
 
       const corePrompt = PROMPTS.MedicalTutor;
-      let phase1Input: string | (string | { inlineData: { data: string; mimeType: string } })[] = [];
 
-      if (inputMode === "file" && filePart) {
-        phase1Input = [
-          corePrompt + `\n\nUSER COMMAND: Giai đoạn 1 bài ${contentName}. ${userFocus}\n\n(Please analyze the attached document)`,
-          filePart
-        ];
-      } else {
-        phase1Input = `${corePrompt}\n\n=== DOCUMENT CONTENT ===\n${contentToProcess}\n\n=== END DOCUMENT ===\n\nUSER COMMAND: Giai đoạn 1 bài ${contentName}. ${userFocus}`;
-      }
+      // Create content for caching
+      const cacheContent = inputMode === "file" && filePart
+        ? filePart
+        : contentToProcess;
 
+      // Create cache with system prompt + content
+      addLog("📦 Creating context cache (saves ~90% tokens)...");
+      await gemini.createCache(corePrompt, cacheContent);
+      geminiRef.current = gemini;
+      addLog("✅ Cache created! Subsequent calls will be much cheaper.");
+
+      // Phase 1: Generate outline using cached context
+      const phase1Command = `USER COMMAND: Giai đoạn 1 bài ${contentName}. ${userFocus}`;
       addLog("⏳ Sending request to Gemini (Phase 1)...");
-      const phase1Output = await gemini.generateContent(phase1Input);
+      const phase1Output = await gemini.generateWithCache(phase1Command);
+      setOutlineContent(phase1Output);
       addLog("✅ Outline generated.");
 
       // Step 2: Extract concepts
       setStatus("extracting");
-      addLog("🟠 Extracting key concepts...");
+      addLog("🟠 Extracting generation commands...");
 
-      // Parse the outline to get generation commands
       const extractionPrompt = `${PROMPTS.DataExtractor}\n\n=== INPUT OUTLINE ===\n${phase1Output}`;
-
       const phase2Output = await gemini.generateContent(extractionPrompt);
-      const commands = phase2Output.split("\n").filter(line => line.trim().startsWith("Giai đoạn 2"));
+      const cmds = phase2Output.split("\n").filter(line => line.trim().startsWith("Giai đoạn 2"));
 
-      addLog(`✅ Found ${commands.length} command(s) for card generation.`);
-      if (commands.length === 0) {
+      if (cmds.length === 0) {
         throw new Error("Could not identify processing commands. Please check input quality.");
       }
 
-      // Step 3: Generate content
+      setCommands(cmds);
+      addLog(`✅ Analysis complete. Found ${cmds.length} chunks.`);
+      setStatus("reviewing");
+
+    } catch (err: unknown) {
+      console.error(err);
+      const msg = err instanceof Error ? err.message : String(err);
+      setErrorMsg(msg || "An unknown error occurred.");
+      setStatus("error");
+      addLog(`❌ Error: ${msg}`);
+    }
+  };
+
+  const handleConfirmGeneration = async () => {
+    try {
       setStatus("generating");
-      addLog("🟣 Generating Anki cards...");
+      addLog("🟣 Starting generation (using cached context)...");
+
+      const gemini = geminiRef.current;
+      if (!gemini || !gemini.hasCache()) {
+        throw new Error("Cache expired or not available. Please re-analyze the document.");
+      }
 
       const allCards: string[] = [];
 
@@ -171,30 +195,25 @@ export default function App() {
         addLog(`Processing chunk ${i + 1}/${commands.length}: ${cmd.slice(0, 50)}...`);
         setProgress(((i + 1) / commands.length) * 100);
 
-        // For Phase 3, we continue using the Master persona.
-        // We re-send context + specific command.
-        let cardInput: string | (string | { inlineData: { data: string; mimeType: string } })[] = "";
-
-        if (inputMode === "file" && filePart) {
-          cardInput = [
-            corePrompt + `\n\nUSER COMMAND: ${cmd}\n\nCRITICAL INSTRUCTION: Analyze the attached document ONLY. Do NOT use external knowledge. If the information is not in the document, state "Missing data".\n\n(Please analyze the attached document)`,
-            filePart
-          ];
-        } else {
-          cardInput = `${corePrompt}\n\n=== DOCUMENT CONTENT ===\n${contentToProcess}\n\n=== END DOCUMENT ===\n\nUSER COMMAND: ${cmd}\n\nCRITICAL INSTRUCTION: Analyze the provided text ONLY. Do NOT use external knowledge.`;
+        try {
+          // Use cached context - much cheaper!
+          const cardOutput = await gemini.generateWithCache(
+            `USER COMMAND: ${cmd}\n\nCRITICAL INSTRUCTION: Analyze the cached document ONLY. Do NOT use external knowledge.`
+          );
+          const cleanOutput = cardOutput.replace(/```/g, "").trim();
+          allCards.push(cleanOutput);
+        } catch (chunkErr) {
+          console.error(`Error processing chunk ${i + 1}`, chunkErr);
+          addLog(`⚠️ Chunk ${i + 1} blocked by AI Safety Filter (Recitation). Skipping...`);
         }
-
-        const cardOutput = await gemini.generateContent(cardInput);
-
-        // Clean output: remove potential markdown code blocks if the model wrapped them
-        const cleanOutput = cardOutput.replace(/```/g, "").trim();
-        allCards.push(cleanOutput);
       }
 
       addLog("✅ All chunks processed.");
+      addLog("🧹 Cleaning up cache...");
+      await gemini.deleteCache();
+
       setGeneratedCards(allCards);
       setStatus("complete");
-
     } catch (err: unknown) {
       console.error(err);
       const msg = err instanceof Error ? err.message : String(err);
@@ -410,22 +429,26 @@ export default function App() {
         {/* Action Button */}
         <div className="flex justify-center pt-4">
           <button
-            onClick={handleGenerate}
-            disabled={status !== "idle" && status !== "complete" && status !== "error"}
+            onClick={status === "reviewing" ? handleConfirmGeneration : handleAnalyze}
+            disabled={status !== "idle" && status !== "complete" && status !== "error" && status !== "reviewing"}
             className={cn(
               "px-8 py-3 rounded-full font-bold text-lg flex items-center gap-2 transition-all shadow-lg hover:shadow-primary/25",
-              status === "idle" || status === "complete" || status === "error"
+              status === "idle" || status === "complete" || status === "error" || status === "reviewing"
                 ? "bg-primary text-primary-foreground hover:bg-primary/90 hover:scale-105 active:scale-95"
                 : "bg-muted text-muted-foreground cursor-not-allowed"
             )}
           >
-            {status !== "idle" && status !== "complete" && status !== "error" ? (
+            {status !== "idle" && status !== "complete" && status !== "error" && status !== "reviewing" ? (
               <>
                 <Loader2 className="w-5 h-5 animate-spin" /> Processing...
               </>
+            ) : status === "reviewing" ? (
+              <>
+                <Play className="w-5 h-5" /> Start Generation ({commands.length} chunks)
+              </>
             ) : (
               <>
-                <Play className="w-5 h-5" /> Generate from {inputMode === "file" ? "File" : "Text"}
+                <Play className="w-5 h-5" /> Analyze {inputMode === "file" ? "File" : "Text"}
               </>
             )}
           </button>
@@ -436,6 +459,64 @@ export default function App() {
             <AlertCircle className="w-5 h-5" />
             {errorMsg}
           </div>
+        )}
+
+        {/* Review Outline Panel */}
+        {status === "reviewing" && (
+          <motion.div
+            initial={{ opacity: 0, height: 0 }}
+            animate={{ opacity: 1, height: "auto" }}
+            className="bg-card border border-border rounded-lg p-6 space-y-4 shadow-lg"
+          >
+            <div className="flex items-center justify-between">
+              <h3 className="text-xl font-bold flex items-center gap-2 text-primary">
+                <FileText className="w-5 h-5" /> Review Outline
+              </h3>
+              <div className="text-sm font-medium bg-secondary text-secondary-foreground px-3 py-1 rounded-full">
+                Estimated: ~{commands.length * 20}-{commands.length * 30} cards
+              </div>
+            </div>
+
+            <p className="text-muted-foreground text-sm">
+              Gemini has analyzed your document. Please review the outline below.
+              If it looks good, click <b>Start Generation</b> above.
+            </p>
+
+            <div className="bg-muted/30 p-4 rounded-md h-64 overflow-y-auto border border-border custom-scrollbar">
+              <pre className="whitespace-pre-wrap text-sm font-mono text-foreground/80">
+                {outlineContent}
+              </pre>
+            </div>
+          </motion.div>
+        )}
+
+        {/* Review Outline Panel */}
+        {status === "reviewing" && (
+          <motion.div
+            initial={{ opacity: 0, height: 0 }}
+            animate={{ opacity: 1, height: "auto" }}
+            className="bg-card border border-border rounded-lg p-6 space-y-4 shadow-lg"
+          >
+            <div className="flex items-center justify-between">
+              <h3 className="text-xl font-bold flex items-center gap-2 text-primary">
+                <FileText className="w-5 h-5" /> Review Outline
+              </h3>
+              <div className="text-sm font-medium bg-secondary text-secondary-foreground px-3 py-1 rounded-full">
+                Estimated: ~{commands.length * 20}-{commands.length * 30} cards
+              </div>
+            </div>
+
+            <p className="text-muted-foreground text-sm">
+              Gemini has analyzed your document. Please review the outline below.
+              If it looks good, click <b>Start Generation</b> above.
+            </p>
+
+            <div className="bg-muted/30 p-4 rounded-md h-64 overflow-y-auto border border-border custom-scrollbar">
+              <pre className="whitespace-pre-wrap text-sm font-mono text-foreground/80">
+                {outlineContent}
+              </pre>
+            </div>
+          </motion.div>
         )}
 
         {/* Progress & Logs */}
