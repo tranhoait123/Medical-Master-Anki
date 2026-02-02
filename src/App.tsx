@@ -605,48 +605,72 @@ export default function App() {
                 <FileText className="w-5 h-5" /> Review Outline
               </h3>
               <div className="text-sm font-medium bg-secondary text-secondary-foreground px-3 py-1 rounded-full">
-                Estimated: ~{commands.length * 20}-{commands.length * 30} cards
+                Estimated: ~{selectedChunks.length * 20}-{selectedChunks.length * 30} cards
               </div>
             </div>
 
             <p className="text-muted-foreground text-sm">
-              Gemini has analyzed your document. Please review the outline below.
-              If it looks good, click <b>Start Generation</b> above.
+              Gemini has analyzed your document. Review the outline and <b>select which parts</b> to generate cards for.
             </p>
 
-            <div className="bg-muted/30 p-4 rounded-md h-64 overflow-y-auto border border-border custom-scrollbar">
+            <div className="bg-muted/30 p-4 rounded-md h-48 overflow-y-auto border border-border custom-scrollbar">
               <pre className="whitespace-pre-wrap text-sm font-mono text-foreground/80">
                 {outlineContent}
               </pre>
             </div>
-          </motion.div>
-        )}
 
-        {/* Review Outline Panel */}
-        {status === "reviewing" && (
-          <motion.div
-            initial={{ opacity: 0, height: 0 }}
-            animate={{ opacity: 1, height: "auto" }}
-            className="bg-card border border-border rounded-lg p-6 space-y-4 shadow-lg"
-          >
-            <div className="flex items-center justify-between">
-              <h3 className="text-xl font-bold flex items-center gap-2 text-primary">
-                <FileText className="w-5 h-5" /> Review Outline
-              </h3>
-              <div className="text-sm font-medium bg-secondary text-secondary-foreground px-3 py-1 rounded-full">
-                Estimated: ~{commands.length * 20}-{commands.length * 30} cards
+            {/* Selective Generation UI */}
+            <div className="space-y-3">
+              <div className="flex items-center justify-between">
+                <h4 className="text-sm font-semibold text-foreground">📋 Select Chunks to Generate</h4>
+                <div className="flex gap-2">
+                  <button
+                    onClick={() => setSelectedChunks(commands.map((_, i) => i))}
+                    className="text-xs px-2 py-1 rounded bg-primary/10 text-primary hover:bg-primary/20 transition-colors"
+                  >
+                    Select All
+                  </button>
+                  <button
+                    onClick={() => setSelectedChunks([])}
+                    className="text-xs px-2 py-1 rounded bg-muted text-muted-foreground hover:bg-muted/80 transition-colors"
+                  >
+                    Deselect All
+                  </button>
+                </div>
               </div>
-            </div>
 
-            <p className="text-muted-foreground text-sm">
-              Gemini has analyzed your document. Please review the outline below.
-              If it looks good, click <b>Start Generation</b> above.
-            </p>
+              <div className="max-h-48 overflow-y-auto space-y-2 border border-border rounded-md p-3 bg-background custom-scrollbar">
+                {commands.map((cmd, idx) => (
+                  <label
+                    key={idx}
+                    className={cn(
+                      "flex items-start gap-3 p-2 rounded-md cursor-pointer transition-colors",
+                      selectedChunks.includes(idx) ? "bg-primary/10 border border-primary/30" : "hover:bg-muted/50"
+                    )}
+                  >
+                    <input
+                      type="checkbox"
+                      checked={selectedChunks.includes(idx)}
+                      onChange={(e) => {
+                        if (e.target.checked) {
+                          setSelectedChunks([...selectedChunks, idx].sort((a, b) => a - b));
+                        } else {
+                          setSelectedChunks(selectedChunks.filter(i => i !== idx));
+                        }
+                      }}
+                      className="mt-1 w-4 h-4 rounded border-border text-primary focus:ring-primary"
+                    />
+                    <span className="text-sm text-foreground/80 flex-1">
+                      <span className="font-mono text-xs text-muted-foreground mr-2">#{idx + 1}</span>
+                      {cmd.replace(/^Giai đoạn 2 phần /, "")}
+                    </span>
+                  </label>
+                ))}
+              </div>
 
-            <div className="bg-muted/30 p-4 rounded-md h-64 overflow-y-auto border border-border custom-scrollbar">
-              <pre className="whitespace-pre-wrap text-sm font-mono text-foreground/80">
-                {outlineContent}
-              </pre>
+              <p className="text-xs text-muted-foreground">
+                💡 Tip: Bỏ chọn những phần "Đại cương" hoặc "Tổng quan" nếu bạn chỉ muốn học chi tiết.
+              </p>
             </div>
           </motion.div>
         )}
