@@ -198,6 +198,7 @@ export default function App() {
 
       const commandsToProcess = selectedChunks.map(i => commands[i]);
       const allCards: string[] = [];
+      const conceptHistory: string[] = []; // Store generated questions to prevent duplicates
 
       for (let i = 0; i < commandsToProcess.length; i++) {
         const cmd = commandsToProcess[i];
@@ -206,11 +207,24 @@ export default function App() {
 
         try {
           // Use cached context - much cheaper!
+          // Construct Prompt with History Awareness
+          const historyText = conceptHistory.length > 0
+            ? `\n\n=== PREVIOUSLY GENERATED CONCEPTS ===\n(Do NOT create cards for these concepts again to avoid duplicates):\n- ${conceptHistory.slice(-50).join("\n- ")}`
+            : "";
+
           const cardOutput = await gemini.generateWithCache(
-            `USER COMMAND: ${cmd}\n\nCRITICAL INSTRUCTION: Analyze the cached document ONLY. Do NOT use external knowledge.`
+            `USER COMMAND: ${cmd}\n\nCRITICAL INSTRUCTION: Analyze the cached document ONLY. Do NOT use external knowledge.${historyText}`
           );
           const cleanOutput = cardOutput.replace(/```/g, "").trim();
           allCards.push(cleanOutput);
+
+          // Extract Questions/Concepts from output to add to history
+          // Assuming format: Question <TAB> Answer
+          const newQuestions = cleanOutput.split('\n')
+            .map(line => line.split('\t')[0])
+            .filter(q => q && q.length > 5);
+
+          conceptHistory.push(...newQuestions);
         } catch (chunkErr) {
           console.error(`Error processing chunk ${i + 1}`, chunkErr);
           addLog(`⚠️ Chunk ${i + 1} blocked by AI Safety Filter (Recitation). Skipping...`);
