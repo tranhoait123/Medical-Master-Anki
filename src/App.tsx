@@ -493,32 +493,54 @@ export default function App() {
           let cardOutput = "";
           let retried = false;
 
-          try {
-            // First attempt: normal prompt
-            cardOutput = await gemini.generateWithCache(
-              `USER COMMAND: ${cmd}\n\nCRITICAL INSTRUCTION: Analyze the cached document ONLY. Do NOT use external knowledge.${historyText}`
-            );
-          } catch {
-            // If blocked, retry with paraphrase prompt
-            addLog(`⚠️ Chunk ${i + 1} blocked. Retrying with paraphrase mode...`);
-            retried = true;
-            retriedChunks++;
+          // Retry logic with multiple strategies
+          // CRITICAL: All attempts must include instruction to use ONLY source document knowledge
+          const sourceOnlyInstruction = "\n\nCRITICAL INSTRUCTION: Analyze the cached document ONLY. Do NOT use any external knowledge. All information must come DIRECTLY from the provided source document.";
 
+          const attempts = [
+            {
+              name: "Normal",
+              prompt: `USER COMMAND: ${cmd}${sourceOnlyInstruction}${historyText}`
+            },
+            {
+              name: "Paraphrase",
+              prompt: `USER COMMAND: ${cmd}\n\nIMPORTANT: Diễn đạt lại nội dung từ tài liệu nguồn BẰNG CÁCH KHÁC (paraphrase). Không trích dẫn nguyên văn nhưng VẪN PHẢI dựa hoàn toàn vào tài liệu nguồn.${sourceOnlyInstruction}${historyText}`
+            },
+            {
+              name: "Simplify",
+              prompt: `USER COMMAND: ${cmd}\n\nIMPORTANT: Tóm tắt nội dung từ tài liệu nguồn một cách ngắn gọn, đơn giản hơn. Tránh trích dẫn nguyên văn nhưng VẪN PHẢI lấy thông tin từ tài liệu nguồn.${sourceOnlyInstruction}${historyText}`
+            }
+          ];
+
+          for (let attemptIdx = 0; attemptIdx < attempts.length; attemptIdx++) {
+            const attempt = attempts[attemptIdx];
             try {
-              // Add delay before retry to avoid rate limit
-              await delay(2000);
-              cardOutput = await gemini.generateWithCache(
-                `USER COMMAND: ${cmd}\n\nIMPORTANT: Giải thích các khái niệm BẰNG LỜI CỦA BẠN (paraphrase). Không trích dẫn nguyên văn. Vẫn giữ đầy đủ thông tin nhưng diễn đạt lại theo cách khác. Output CSV format.${historyText}`
-              );
-              addLog(`✅ Chunk ${i + 1} recovered with paraphrase mode.`);
-            } catch (retryErr) {
-              // Both attempts failed, skip this chunk
-              console.error(`Chunk ${i + 1} failed both attempts`, retryErr);
-              addLog(`❌ Chunk ${i + 1} failed both attempts. Skipping...`);
-              blockedChunks++;
-              continue;
+              if (attemptIdx > 0) {
+                addLog(`⚠️ Chunk ${i + 1} blocked. Retrying with '${attempt.name}' mode (Attempt ${attemptIdx + 1}/${attempts.length})...`);
+                await delay(2000 + (attemptIdx * 1000)); // Increase delay for each retry
+                retried = true;
+                retriedChunks++;
+              }
+
+              cardOutput = await gemini.generateWithCache(attempt.prompt);
+
+              if (attemptIdx > 0) {
+                addLog(`✅ Chunk ${i + 1} recovered with '${attempt.name}' mode.`);
+              }
+              break; // Success!
+            } catch (err) {
+              if (attemptIdx === attempts.length - 1) {
+                // All attempts failed
+                console.error(`Chunk ${i + 1} failed all attempts`, err);
+                addLog(`❌ Chunk ${i + 1} failed all ${attempts.length} attempts. Skipping...`);
+                blockedChunks++;
+                cardOutput = ""; // Ensure empty output
+              }
             }
           }
+
+          // If no output generated after all retries, continue to next chunk
+          if (!cardOutput) continue;
 
           // Clean output: remove code blocks and extract only valid CSV lines
           const rawOutput = cardOutput.replace(/```(?:csv)?/gi, "").trim();
