@@ -451,8 +451,8 @@ export default function App() {
       addLog("🟣 Starting generation (using cached context)...");
 
       const gemini = geminiRef.current;
-      if (!gemini || !gemini.hasCache()) {
-        throw new Error("Cache expired or not available. Please re-analyze the document.");
+      if (!gemini) {
+        throw new Error("Gemini service not initialized. Please re-analyze the document.");
       }
 
       if (selectedChunks.length === 0) {
@@ -822,6 +822,64 @@ export default function App() {
               <div key={i} className="text-muted-foreground break-words">{log}</div>
             ))}
             <div ref={logsEndRef} />
+          </motion.div>
+        )}
+
+        {/* --- REVIEWING STATE --- */}
+        {status === "reviewing" && (
+          <motion.div
+            initial={{ opacity: 0, scale: 0.95 }}
+            animate={{ opacity: 1, scale: 1 }}
+            className="bg-card border border-border rounded-lg p-6 space-y-6 shadow-xl"
+          >
+            <div className="space-y-4">
+              <div className="flex items-center justify-between">
+                <h2 className="text-xl font-bold flex items-center gap-2">
+                  <CheckCircle className="w-5 h-5 text-blue-500" />
+                  Review Generation Plan
+                </h2>
+                <span className="text-sm text-muted-foreground">{commands.length} sections found</span>
+              </div>
+
+              <div className="bg-muted/30 rounded-lg p-4 max-h-96 overflow-y-auto space-y-2 border border-border">
+                {commands.map((cmd, i) => (
+                  <div key={i} className="flex items-start gap-3 p-3 bg-card rounded border border-border hover:border-primary/50 transition-colors">
+                    <input
+                      type="checkbox"
+                      checked={selectedChunks.includes(i)}
+                      onChange={(e) => {
+                        if (e.target.checked) {
+                          setSelectedChunks(prev => [...prev, i]);
+                        } else {
+                          setSelectedChunks(prev => prev.filter(idx => idx !== i));
+                        }
+                      }}
+                      className="mt-1 w-4 h-4 accent-primary"
+                    />
+                    <div className="text-sm">
+                      <span className="font-mono text-xs text-primary/70 block mb-1">Section {i + 1}</span>
+                      {cmd}
+                    </div>
+                  </div>
+                ))}
+              </div>
+
+              <div className="flex items-center gap-3 pt-2">
+                <button
+                  onClick={() => setStatus("idle")}
+                  className="flex-1 py-3 px-4 rounded-lg border border-border hover:bg-muted transition-colors font-medium text-muted-foreground"
+                >
+                  Cancel
+                </button>
+                <button
+                  onClick={handleConfirmGeneration}
+                  disabled={selectedChunks.length === 0}
+                  className="flex-[2] py-3 text-primary-foreground font-bold rounded-lg transition-all shadow-lg shadow-primary/20 flex items-center justify-center gap-2 bg-primary hover:bg-primary/90 disabled:opacity-50 disabled:cursor-not-allowed"
+                >
+                  Confirm & Generate Cards 🚀
+                </button>
+              </div>
+            </div>
           </motion.div>
         )}
 

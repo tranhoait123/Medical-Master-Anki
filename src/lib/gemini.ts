@@ -4,8 +4,10 @@ export type ContentPart = { inlineData: { data: string; mimeType: string } } | s
 
 export class GeminiService {
     private ai: GoogleGenAI;
-    private modelName = "gemini-3-flash-preview";
+    private modelName = "gemini-2.0-flash"; // Use stable GA model instead of preview
+    private fallbackModelName = "gemini-1.5-flash"; // Fallback if primary fails
     private cacheName: string | null = null;
+    private maxRetries = 3;
 
     // Store params for auto-refresh
     private lastSystemPrompt: string = "";
@@ -16,11 +18,29 @@ export class GeminiService {
     }
 
     /**
+     * Helper to delay execution (for retry backoff)
+     */
+    private delay(ms: number): Promise<void> {
+        return new Promise(resolve => setTimeout(resolve, ms));
+    }
+
+    /**
+     * Check if error is retryable (503, 429, etc.)
+     */
+    private isRetryableError(error: unknown): boolean {
+        const err = error as { status?: number; message?: string };
+        return err.status === 503 || err.status === 429 ||
+            (err.message?.includes("overloaded") ?? false) ||
+            (err.message?.includes("rate limit") ?? false);
+    }
+
+    /**
      * Create a cache with the given content (file or text).
      * The cache can then be used for subsequent generateContent calls.
+     * If content is too small for caching (< 4096 tokens), falls back to non-cached mode.
      * @param systemInstruction - The system prompt to cache
      * @param content - The content to cache (inline data or text, or array of them)
-     * @returns The cache name for later reference
+     * @returns The cache name for later reference, or empty string if fallback mode
      */
     async createCache(
         systemInstruction: string,
@@ -32,81 +52,131 @@ export class GeminiService {
             typeof c === "string" ? { text: c } : c
         );
 
-        // Save for auto-recovery
+        // Save for auto-recovery and non-cached fallback
         this.lastSystemPrompt = systemInstruction;
         this.lastContent = content;
 
-        const cache = await this.ai.caches.create({
-            model: this.modelName,
-            config: {
-                contents: createUserContent(contentParts),
-                systemInstruction: systemInstruction,
-                ttl: "3600s", // 1 hour
-            },
-        });
+        try {
+            const cache = await this.ai.caches.create({
+                model: this.modelName,
+                config: {
+                    contents: createUserContent(contentParts),
+                    systemInstruction: systemInstruction,
+                    ttl: "3600s", // 1 hour
+                },
+            });
 
-        this.cacheName = cache.name!;
-        return this.cacheName;
+            this.cacheName = cache.name!;
+            return this.cacheName;
+        } catch (error: unknown) {
+            const err = error as { status?: number; message?: string };
+            // Cache too small error - fallback to non-cached mode
+            if (err.status === 400 && err.message?.includes("too small")) {
+                console.warn("Content too small for caching (< 4096 tokens). Using non-cached mode.");
+                this.cacheName = null;
+                return ""; // Empty string indicates non-cached mode
+            }
+            throw error;
+        }
     }
 
     /**
      * Generate content using the cached context.
      * This is much more token-efficient for repeated calls.
+     * Includes retry logic for transient errors (503, 429).
+     * Falls back to non-cached generation if cache is not available.
      * @param prompt - The specific prompt/command for this generation
      * @returns The generated text
      */
     async generateWithCache(prompt: string): Promise<string> {
+        // Fallback to non-cached mode if cache not available (e.g., content too small)
         if (!this.cacheName) {
-            throw new Error("No cache available. Call createCache first.");
+            console.warn("No cache available. Falling back to non-cached generation.");
+            // Combine system prompt with user prompt for non-cached mode
+            const fullPrompt = this.lastSystemPrompt
+                ? `${this.lastSystemPrompt}\n\n${prompt}`
+                : prompt;
+            return this.generateContent(fullPrompt);
         }
 
-        try {
-            const response = await this.ai.models.generateContent({
-                model: this.modelName,
-                contents: prompt,
-                config: {
-                    cachedContent: this.cacheName,
-                },
-            });
-            return response.text ?? "";
-        } catch (error: unknown) {
-            // Check for cache expiration (404 typically indicates cache not found)
-            const err = error as { status?: number; message?: string };
-            if (err.status === 404 || (err.message && err.message.includes("not found"))) {
-                console.warn("Cache expired or not found. Attempting to refresh...", error);
+        let lastError: unknown = null;
 
-                if (this.lastSystemPrompt && this.lastContent) {
-                    // Re-create cache
-                    await this.createCache(this.lastSystemPrompt, this.lastContent);
+        for (let attempt = 1; attempt <= this.maxRetries; attempt++) {
+            try {
+                const response = await this.ai.models.generateContent({
+                    model: this.modelName,
+                    contents: prompt,
+                    config: {
+                        cachedContent: this.cacheName,
+                    },
+                });
+                return response.text ?? "";
+            } catch (error: unknown) {
+                lastError = error;
+                const err = error as { status?: number; message?: string };
 
-                    // Retry request with new cache
-                    const response = await this.ai.models.generateContent({
-                        model: this.modelName,
-                        contents: prompt,
-                        config: {
-                            cachedContent: this.cacheName!,
-                        },
-                    });
-                    return response.text ?? "";
+                // Check for cache expiration (404)
+                if (err.status === 404 || (err.message && err.message.includes("not found"))) {
+                    console.warn("Cache expired or not found. Attempting to refresh...");
+
+                    if (this.lastSystemPrompt && this.lastContent) {
+                        await this.createCache(this.lastSystemPrompt, this.lastContent);
+                        continue; // Retry with new cache
+                    }
                 }
+
+                // Check for retryable errors (503, 429)
+                if (this.isRetryableError(error)) {
+                    const backoffMs = Math.min(1000 * Math.pow(2, attempt - 1), 8000);
+                    console.warn(`Attempt ${attempt}/${this.maxRetries} failed (${err.status || 'unknown'}). Retrying in ${backoffMs}ms...`);
+                    await this.delay(backoffMs);
+                    continue;
+                }
+
+                throw error; // Non-retryable error
             }
-            throw error; // Re-throw if not a cache error or can't recover
         }
+
+        throw lastError;
     }
 
     /**
      * Generate content without caching (for one-off requests or small inputs).
-     * Falls back to standard generation.
+     * Includes retry logic for transient errors (503, 429).
      * @param prompt - The prompt string
      * @returns The generated text
      */
     async generateContent(prompt: string): Promise<string> {
-        const response = await this.ai.models.generateContent({
-            model: this.modelName,
-            contents: prompt,
-        });
+        let lastError: unknown = null;
+        let currentModel = this.modelName;
 
-        return response.text ?? "";
+        for (let attempt = 1; attempt <= this.maxRetries; attempt++) {
+            try {
+                const response = await this.ai.models.generateContent({
+                    model: currentModel,
+                    contents: prompt,
+                });
+                return response.text ?? "";
+            } catch (error: unknown) {
+                lastError = error;
+
+                if (this.isRetryableError(error)) {
+                    const backoffMs = Math.min(1000 * Math.pow(2, attempt - 1), 8000);
+                    console.warn(`Attempt ${attempt}/${this.maxRetries} failed (retryable). Retrying in ${backoffMs}ms...`);
+                    await this.delay(backoffMs);
+
+                    // Try fallback model on last retry
+                    if (attempt === this.maxRetries - 1) {
+                        console.warn(`Switching to fallback model: ${this.fallbackModelName}`);
+                        currentModel = this.fallbackModelName;
+                    }
+                } else {
+                    throw error; // Non-retryable error, throw immediately
+                }
+            }
+        }
+
+        throw lastError;
     }
 
     /**
