@@ -6,7 +6,7 @@
 
 ![Badge](https://img.shields.io/badge/Status-Active-success)
 ![Badge](https://img.shields.io/badge/Tech-React_TS-blue)
-![Badge](https://img.shields.io/badge/AI-Gemini_3.0_Flash-orange)
+![Badge](https://img.shields.io/badge/AI-Gemini_Advanced-orange)
 ![Badge](https://img.shields.io/badge/License-MIT-green)
 
 ---
@@ -17,7 +17,7 @@ Là một sinh viên Y (hoặc người học Y), chắc chắn bạn hiểu c�
 
 * 📚 **Tài liệu quá nhiều:** Harrison, Guyton, Slide bài giảng, Note lâm sàng... đọc không xuể.
 * ⏳ **Thời gian quá ít:** Vừa đi trực, vừa đi học, về nhà chỉ muốn ngủ chứ không muốn ngồi gõ từng cái thẻ Anki.
-* 😫 **Anki cực hình:** Việc tạo thẻ (Card creation) chiếm 80% thời gian, chỉ còn 20% để học (Review). Đây là một sự lãng phí khủng khiếp.
+* 😫 **Anki cực hình:** Việc tạo thẻ (Card creation) chiếm 80% thời gian, chỉ còn 20% để học (Review).
 
 **Medical Master** ra đời để đảo ngược tỷ lệ đó: **1% Tạo thẻ - 99% Học.**
 
@@ -25,48 +25,39 @@ Công cụ này không chỉ là một cái "máy copy paste". Nó được tíc
 
 ---
 
-## ✨ Tính Năng Nổi Bật (v1.6.1)
+## ✨ Tính Năng Nổi Bật (v1.8.0)
 
-### 1. 🧠 Gemini 3.0 Flash Power
+### 1. 🧠 Multi-Model AI Power (2026 Ready)
 
-Sử dụng model mới nhất của Google (2025/2026) với tốc độ xử lý "ánh sáng" và khả năng hiểu ngữ cảnh khổng lồ.
+Hỗ trợ các model mạnh nhất của Google với tính năng **Context Caching** (giảm 90% chi phí):
 
-* **Đọc đa phương tiện:** PDF, Ảnh chụp vở (OCR viết tay cực đỉnh), Text.
-* **Context Caching:** Tự động ghi nhớ tài liệu, giúp giảm 90% chi phí API và tăng tốc độ xử lý.
-* **Rate Limit Protection:** Tự động delay giữa các request để tránh bị chặn bởi API.
+* **🏆 Gemini 3 Flash:** (Preview) Model ít ảo giác nhất, reasoning cấp tiến sĩ.
+* **🧠 Gemini 2.5 Flash:** Có sẵn "Thinking Mode", cân bằng giữa tốc độ và tư duy sâu.
+* **⚡ Gemini 2.5 Flash-Lite:** Siêu rẻ, siêu nhanh, tối ưu cho xử lý sách 1000 trang với ngân sách sinh viên.
 
-### 2. 🛡️ Strict Grounding (Chống ảo giác)
+### 2. 🛡️ Strict Grounding & 100% Coverage
 
-Nỗi sợ lớn nhất khi dùng AI học Y là **AI bịa kiến thức (Hallucination)**.
+* **100% Coverage Rule:** Đảm bảo không bỏ sót bất kỳ chi tiết nhỏ nào (liều lượng, số liệu...).
+* **Zero Hallucination Policy:** Nếu thiếu dữ liệu -> Báo "Missing Data", tuyệt đối không bịa.
+* **Precise Sourcing:** Trích dẫn nguồn chính xác đến từng trang/phút `[File PDF - Trang 12]`.
 
-* Mình đã thiết lập "Hàng rào thép" 3 lớp.
-* Nếu thông tin không có trong tài liệu bạn nạp vào -> AI sẽ báo **"Missing Data"** chứ tuyệt đối không chế thêm.
-* Mỗi thẻ đều có trích dẫn nguồn: `📍 Nguồn: [File PDF - Trang 12]`.
+### 3. 🔍 Granular Data Extraction
 
-### 3. � Outline Review & Selective Generation
+* **V2.4 Extractor:** Thuật toán tách nhỏ outline thế hệ mới. Không còn tình trạng "gom cục" kiến thức.
+* **Selective Generation:** Bạn có thể chọn học từng phần nhỏ (ví dụ: chỉ học "Cơ chế bệnh sinh", bỏ qua "Đại cương").
+* **Anti-Duplicate:** Lọc trùng lặp thông minh, tự động loại bỏ các thẻ đã học ở phần Tổng quan.
 
-Thay vì phó mặc cho AI "muốn làm gì thì làm", bạn nắm quyền kiểm soát:
+### 4. 📊 Transparent Usage Tracking
 
-1. **Analyze (Phân tích):** AI đọc bài, vẽ ra một cái Mục lục (Outline) chi tiết.
-2. **Review (Duyệt):** Bạn xem trước dàn ý.
-3. **Select (Chọn):** Chỉ tick chọn những phần bạn muốn học (VD: Bỏ qua phần "Đại cương", chỉ học "Điều trị").
-4. **Anti-Duplicate:** Thuật toán thông minh tự động loại bỏ các mục trùng lặp, chỉ giữ lại kiến thức tinh gọn nhất.
+* **Token Counter:** Hiển thị chi tiết số token input/output đã dùng.
+* **Progress Bar:** Theo dõi tiến độ sinh thẻ theo thời gian thực (Real-time logs & chunks).
+* **Cost Estimation:** Giúp bạn quản lý ngân sách API hiệu quả.
 
-### 4. ⚡ Power User Tools
+### 5. ⚡ Power User Tools
 
-* **Edit Mode:** Sửa lỗi chính tả, thêm ghi chú cá nhân ngay trước khi tạo thẻ.
-* **History:** Tự động lưu thẻ vào bộ nhớ trình duyệt. Lỡ tay tắt tab? Không sao, mở lại vẫn còn nguyên.
-* **AnkiConnect:** Bấm một nút, thẻ bay thẳng vào bộ bài (Deck) Anki của bạn. Không cần import thủ công.
-
-### 5. 📄 CSV Export & Smart Retry
-
-* **CSV Format:** Xuất thẻ ra định dạng CSV chuẩn (`"Câu hỏi","Câu trả lời"`) - dễ dàng import vào Anki hoặc mở trong Excel.
-* **Auto Retry (Paraphrase Mode):** Khi chunk bị chặn bởi AI Safety Filter (Recitation), hệ thống tự động thử lại với prompt yêu cầu AI diễn đạt lại (paraphrase) - không mất nội dung.
-
-### 6. 📁 Multi-File Knowledge Base
-
-* **Hỗ trợ đa tập tin:** Upload nhiều file (PDF, Text, Ảnh) cùng một lúc.
-* AI sẽ tự động gộp tất cả vào một Context Cache duy nhất để phân tích tổng hợp và tạo thẻ liên kết các kiến thức.
+* **CSV Cleanup:** Tự động sửa lỗi định dạng CSV do AI sinh ra.
+* **Auto Retry:** Tự động xử lý khi bị AI chặn (Recitation Filter) bằng cách diễn đạt lại (Paraphrase).
+* **AnkiConnect:** Sync thẳng vào Anki chỉ với 1 cú click.
 
 ---
 
@@ -105,54 +96,28 @@ Xong! Mở trình duyệt tại `http://localhost:5173` và bắt đầu thôi.
 
 ### 1. Nạp nhiên liệu ⛽
 
-* Nhập **Gemini API Key** (Lấy miễn phí tại Google AI Studio).
-* Upload file PDF bài giảng, hoặc Paste đoạn văn bản cần học.
+* Nhập **Gemini API Key**.
+* Upload file PDF bài giảng (Hỗ trợ nhiều file cùng lúc).
+* Chọn Model phù hợp (Khuyên dùng **Flash-Lite** cho tài liệu dài, **3 Flash** cho độ chính xác tuyệt đối).
 
 ### 2. Phân tích & Lên kế hoạch 🧭
 
-* Nhập **Topic Focus** (Quan trọng): Nếu file PDF dài 100 trang, hãy gõ "Bài Suy Tim" để AI chỉ tập trung vào đó.
-* Bấm **Analyze**.
+* Nhập **Topic Focus** (Ví dụ: "Bài Suy Tim").
+* Bấm **Analyze** để AI tạo cache và lập dàn ý.
 
 ### 3. Kiểm duyệt (The Gatekeeper) 👮
 
-* AI sẽ trả về bảng **Review Outline**.
-* Kiểm tra xem nó chia mục đúng chưa.
-* Bỏ tick những phần rườm rà không cần thiết.
+* Review dàn ý (Outline).
+* Chọn các phần muốn học.
 
 ### 4. Khởi động nhà máy 🏭
 
 * Bấm **Start Generation**.
-* Ngồi đợi AI "nhả" thẻ. Chỗ này có **Context Caching** nên sẽ chạy khá nhanh.
+* Theo dõi Progress Bar và Log để xem AI làm việc.
 
 ### 5. Hậu kỳ & Xuất xưởng 📦
 
-* Đọc lướt qua các thẻ. Bấm vào icon ✏️ để sửa nếu cần.
-* Bấm **Download .csv** để tải file CSV về máy.
-* Hoặc bấm **Sync to Anki** để đẩy thẳng vào Anki.
-
----
-
-## ❓ FAQ & Troubleshooting
-
-**Q: Tại sao bấm Start Generation mà không chạy?**
-
-* A: Có thể do Cache hết hạn (nếu bạn treo máy quá 1 tiếng). Nhưng yên tâm, bản **v1.5.0** đã có tính năng **Auto-Refresh Cache**, nó sẽ tự sửa lỗi này cho bạn. Chỉ cần đợi thêm vài giây.
-
-**Q: Tool báo lỗi "Failed to fetch" khi Sync?**
-
-* A: Bạn chưa bật Anki Desktop, hoặc chưa config AnkiConnect đúng (xem lại Bước 1).
-
-**Q: Thẻ tạo ra quá nhiều, trùng lặp?**
-
-* A: Hãy dùng tính năng **Selective Generation** ở bước Review để bỏ bớt các mục cha (I, II...) nếu thấy không cần thiết.
-
-**Q: Dữ liệu của tôi có bị gửi đi đâu không?**
-
-* A: Không. Mọi thứ diễn ra trên trình duyệt của bạn và gửi trực tiếp đến Google Gemini API. Mình (tác giả) không lưu bất kỳ cái gì.
-
-**Q: Tại sao một số chunk bị "blocked" và "Retrying with paraphrase mode"?**
-
-* A: Gemini có cơ chế bảo vệ bản quyền (Recitation Filter). Khi AI thấy output quá giống tài liệu gốc (sách giáo khoa...), nó sẽ chặn. Tool tự động retry với prompt yêu cầu AI diễn đạt lại - vẫn giữ đủ ý nhưng không copy nguyên văn.
+* Xem lại thẻ, sync sang Anki hoặc tải CSV.
 
 ---
 
@@ -160,13 +125,10 @@ Xong! Mở trình duyệt tại `http://localhost:5173` và bắt đầu thôi.
 
 | Version | Ngày | Thay đổi nổi bật |
 | :--- | :--- | :--- |
-| **v1.7.0** | 02/2026 | Modular Refactor (Clean Code), True Multi-file Support, Enhanced UI Components. |
-| **v1.6.1** | 02/2026 | Bug fixes: CSV parsing, memory leak, rate limits, localStorage limit, cache cleanup. |
-| **v1.6.0** | 02/2026 | CSV Export, Auto Retry (Paraphrase Mode) khi bị Recitation Filter. |
-| **v1.5.0** | 02/2026 | Auto-Refresh Cache, Selective Generation, UI Polish. |
-| **v1.4.0** | 02/2026 | Explicit Context Caching (Tiết kiệm 90% token). |
-| **v1.3.0** | 02/2026 | Outline Review & Card Estimation. |
-| **v1.2.0** | 01/2026 | Edit Mode & History Persistence. |
+| **v1.8.0** | 02/2026 | **Multi-Model Support** (3 Flash, 2.5 Flash, Lite), **Token Usage**, **Granular Extractor v2.4**, Progress Bar. |
+| **v1.7.0** | 02/2026 | Modular Refactor, True Multi-file Support. |
+| **v1.6.0** | 02/2026 | CSV Export, Auto Retry (Paraphrase Mode). |
+| **v1.5.0** | 02/2026 | Auto-Refresh Cache, Selective Generation. |
 | **v1.0.0** | 01/2026 | Initial Release. |
 
 ---

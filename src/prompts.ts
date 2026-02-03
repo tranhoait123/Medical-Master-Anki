@@ -16,6 +16,7 @@ export const PROMPTS = {
 * **CRITICAL:** Mọi con số, cơ chế, thuốc, liều lượng, tiêu chuẩn, ngoại lệ trong tài liệu gốc đều phải được chuyển hóa thành câu hỏi.
 * Nếu tài liệu dài, hãy xử lý tuần tự từng phần nhỏ. **Không được bỏ qua bất kỳ chi tiết nào** dù là nhỏ nhất.
 * **Quy tắc 1:1:** Mỗi đơn vị kiến thức quan trọng = 1 Thẻ Anki độc lập.
+* **⚠️ 100% COVERAGE:** Cards phải BAO PHỦ TOÀN BỘ kiến thức trong tài liệu. Người học KHÔNG CẦN đọc lại tài liệu gốc vì mọi thông tin đã có trong cards.
 
 ### 1.2 Phase Separation (Phân tách chức năng)
 * **GĐ1:** Chỉ gạch đầu dòng cấu trúc + số liệu. **Cấm** giải thích, **Cấm** văn xuôi.
@@ -70,16 +71,17 @@ I. [CHỦ ĐỀ LỚN]
 
 ## 🔴 GIAI ĐOẠN 2: ANKI CODE GENERATOR
 
-### 3.1 Format File Import (CSV format)
+### 3.1 Format File Import (CSV format) - STRICT!
 * Chỉ xuất **Code Block** chứa nội dung file \`.csv\`.
-* Cấu trúc mỗi dòng: \`"[Câu hỏi]","[Câu trả lời HTML]"\`
-* **Quy tắc CSV:**
+* **⚠️ CRITICAL: 1 CARD = 1 DÒNG. Số dòng trong output PHẢI BẰNG số cards.**
+* Cấu trúc mỗi dòng: \`"Câu hỏi trực tiếp","Câu trả lời HTML"\` (KHÔNG có prefix)
+* **Quy tắc CSV TUYỆT ĐỐI:**
   * Bắt buộc bao quanh Question và Answer bằng dấu ngoặc kép đôi ("...").
   * Nếu trong nội dung có dấu ngoặc kép ("), phải thay thế bằng 2 dấu ngoặc kép ("").
   * Dùng dấu phẩy (,) để ngăn cách giữa Question và Answer.
-* **Cấm:** Xuống dòng thực tế trong nội dung Q/A (làm vỡ cấu trúc CSV).
-  * Mọi xuống dòng hiển thị phải thay bằng thẻ \`<br>\`.
-  * Nếu cần "xuống dòng nhìn thấy" trong đáp án: dùng \`<br><br>\` giữa các khối.
+  * **TUYỆT ĐỐI CẤM xuống dòng thực tế (Enter/\\n) trong nội dung Q/A.**
+  * Mọi xuống dòng hiển thị phải thay bằng thẻ \`<br>\`. KHÔNG ĐƯỢC dùng \\n.
+  * Toàn bộ 1 thẻ phải nằm trên 1 dòng duy nhất, dù dài bao nhiêu.
 
 ### 3.2 Cấu trúc HTML bắt buộc cho câu trả lời (A)
 Phải bao gồm đầy đủ các phần sau theo đúng thứ tự:
@@ -92,10 +94,22 @@ Phải bao gồm đầy đủ các phần sau theo đúng thứ tự:
 7) \`📖 <b>Nguyên văn (Verbatim):</b> ...\` (Chỉ trích khi liên quan định nghĩa/tiêu chuẩn)
 8) \`📍 <i>Nguồn: ...</i>\`
 
-### 3.3 Loại câu hỏi (Coverage)
+### 3.3 Loại câu hỏi (Chất lượng cao)
 * **Fact recall:** Số liệu, liều lượng, tiêu chuẩn, phân loại.
 * **Mechanism:** Tại sao? (Yêu cầu giải thích sâu, step-by-step).
 * **Clinical reasoning:** Xử trí tình huống, biện luận, DDx, "bước rẽ" quyết định.
+
+### 3.4 CHỐNG TRÙNG LẶP (CRITICAL!)
+* **CẤM tạo 2 câu hỏi giống nhau** dù cách diễn đạt khác.
+* Nếu 1 khái niệm đã có trong thẻ "Tổng quan" → KHÔNG lặp lại trong thẻ chi tiết.
+* Mỗi thẻ phải hỏi về 1 khía cạnh DUY NHẤT, không trùng với các thẻ khác.
+
+### 3.5 CHẤT LƯỢNG CÂU HỎI (CRITICAL!)
+* Câu hỏi phải CỤ THỂ, CÓ ÝNGHĨA LÂM SÀNG.
+* **CẤM:** Câu hỏi chung chung như "Hãy nói về X", "Mô tả X".
+* **YÊU CẦU:** Câu hỏi phải có 1 đáp án rõ ràng, có thể kiểm tra được.
+* Ví dụ TỐT: "Liều Paracetamol tối đa cho trẻ 10kg trong 24h là bao nhiêu?"
+* Ví dụ XẤU: "Nói về Paracetamol."
 
 ### 3.6 Quy tắc xử lý độ dài (AUTO-CHUNK)
 * Nếu nội dung mục chọn quá dài:
@@ -110,48 +124,26 @@ Phải bao gồm đầy đủ các phần sau theo đúng thứ tự:
 * Mỗi thẻ phải độc lập hoàn toàn. Người học không cần mở sách vẫn hiểu được trọn vẹn vấn đề.
 * Không mâu thuẫn nội tại: nếu trong input có mâu thuẫn, phải nêu rõ \`⚠️ Mâu thuẫn trong nguồn\`.`,
 
-  DataExtractor: `SYSTEM INSTRUCTION: DATA EXTRACTION EXPERT (LEAF-NODE ONLY) — v2.2 (SAFE MODE)
- 
- Role: Chuyên gia trích xuất và cấu trúc dữ liệu.
- Task: Chuyển đổi văn bản thành danh sách lệnh tạo thẻ (Generation Commands).
- 
- 🎯 MỤC TIÊU: Loại bỏ trùng lặp cấu trúc NHƯNG BẮT BUỘC giữ lại 100% thông tin "rơi vãi" (Orphan Content).
- 
- 0) ĐỊNH NGHĨA "NỘI DUNG RƠI VÃI" (ORPHAN CONTENT)
- Là những đoạn văn bản quan trọng (định nghĩa, đại cương, cơ chế chung) nằm ngay dưới tiêu đề Phần lớn (I, II...) hoặc Mục lớn (1, 2...) NHƯNG ĐỨNG TRƯỚC các mục nhỏ (a, b, c).
- -> Bắt buộc phải gom nội dung này vào một thẻ "Tổng quan" hoặc "Đại cương" riêng biệt.
- 
- 1) QUY TẮC ĐẦU RA (OUTPUT RULES)
- - Chỉ xuất danh sách kết quả. 1 dòng = 1 lệnh.
- - Luôn bắt đầu bằng: Giai đoạn 2
- 
- 2) ĐỐI TƯỢNG ĐƯỢC CHỌN (TARGET SELECTION)
- Chỉ trích xuất khi gặp:
- (A) Mục Tổng quan/Đại cương: Bắt đầu bằng 0., i. hoặc đoạn văn mở đầu không có số thứ tự.
- (B) Mục Chi tiết (Leaf Nodes): a., b., c...
- (C) Mục Cô độc: 1., 2... nếu nó không có con a,b,c đi kèm.
- 
- ⚠️ QUY TẮC BẢO TOÀN KIẾN THỨC (QUAN TRỌNG):
- Khi xử lý một Mục Lớn (Vd: 1. Suy tim), nếu thấy bên dưới nó có đoạn văn mô tả chung trước khi chia ra a, b, c... -> PHẢI TẠO NGAY 1 LỆNH RIÊNG cho đoạn văn đó, đặt tên là "i. Đại cương" hoặc "i. Tổng quan".
- 
- 3) FORMAT DÒNG LỆNH (TEMPLATE)
- "Giai đoạn 2 phần [Roman]. [Number]. [Target]"
- 
- Ví dụ Input:
- I. Tim mạch
-   1. Suy tim         <-- Mục lớn
-      (Đoạn văn A: Suy tim là tình trạng...)   <-- ĐÂY LÀ KIẾN THỨC!!! KHÔNG ĐƯỢC BỎ.
-      a. Triệu chứng
-      b. Điều trị
- 
- Output CHUẨN (3 lệnh):
- Giai đoạn 2 phần I. Tim mạch. 1. Suy tim. i. Đại cương (Đoạn văn A):  <-- Lệnh này để bắt đoạn văn A
- Giai đoạn 2 phần I. Tim mạch. 1. Suy tim. a. Triệu chứng:
- Giai đoạn 2 phần I. Tim mạch. 1. Suy tim. b. Điều trị:
- 
- 4) XỬ LÝ THỰC TẾ:
- - Quét tuần tự.
- - Nếu gặp văn bản không định danh ngay sau Mục Lớn -> Gán nhãn "i. Đại cương" -> Xuất lệnh.
- - Nếu gặp a, b, c -> Xuất lệnh bình thường.
- `,
+  DataExtractor: `DATA EXTRACTOR v2.4 (GRANULAR)
+
+TASK: Chuyển Outline thành danh sách lệnh CHI TIẾT.
+
+QUY TẮC TÁCH (CRITICAL!):
+1. KHÔNG BAO GIỜ gom cả chương lớn vào 1 lệnh.
+2. Phải tách xuống tận cấp nhỏ nhất (Leaf Node: a., b., c., ...).
+3. Nếu mục lớn (1., 2.) chứa nhiều mục con: PHẢI TẠO LỆNH RIÊNG cho từng mục con.
+4. KHÔNG dùng "..." hay tóm tắt.
+
+TARGET FORMAT: "Giai đoạn 2 phần [Roman]. [Number]. [Leaf]"
+
+VD ĐÚNG (Tách nhỏ):
+Giai đoạn 2 phần I. Tim mạch. 1. Suy tim. i. Đại cương
+Giai đoạn 2 phần I. Tim mạch. 1. Suy tim. a. Triệu chứng
+Giai đoạn 2 phần I. Tim mạch. 1. Suy tim. b. Điều trị
+
+VD SAI (Gom cục - CẤM):
+❌ Giai đoạn 2 phần I. Tim mạch. 1. Suy tim (Gom hết đại cương, triệu chứng, điều trị)
+
+OUTPUT:
+Liệt kê các dòng lệnh, mỗi dòng 1 lệnh:`,
 };

@@ -4,8 +4,8 @@ export type ContentPart = { inlineData: { data: string; mimeType: string } } | s
 
 export class GeminiService {
     private ai: GoogleGenAI;
-    private modelName = "gemini-2.0-flash"; // Use stable GA model instead of preview
-    private fallbackModelName = "gemini-1.5-flash"; // Fallback if primary fails
+    private modelName = "gemini-2.5-flash-lite"; // Stable, cost-effective, supports caching
+    private fallbackModelName = "gemini-2.0-flash"; // Fallback until March 2026
     private cacheName: string | null = null;
     private maxRetries = 3;
 
@@ -13,8 +13,11 @@ export class GeminiService {
     private lastSystemPrompt: string = "";
     private lastContent: ContentPart | ContentPart[] | null = null;
 
-    constructor(apiKey: string) {
+    constructor(apiKey: string, modelName?: string) {
         this.ai = new GoogleGenAI({ apiKey });
+        if (modelName) {
+            this.modelName = modelName;
+        }
     }
 
     /**

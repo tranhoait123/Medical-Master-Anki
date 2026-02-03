@@ -50,7 +50,14 @@ export default function App() {
 
   // Phase 3 Features: New State
   const [searchQuery, setSearchQuery] = useState("");
-  const [exportFormat, setExportFormat] = useState<"csv" | "md" | "json">("csv");
+  const [exportFormat, setExportFormat] = useState<"csv" | "tsv">("csv");
+
+  // Model Selection
+  const [selectedModel, setSelectedModel] = useState("gemini-2.5-flash-lite");
+
+  // Token Usage Tracking
+  const [tokenUsage, setTokenUsage] = useState({ input: 0, output: 0, cached: 0 });
+  const [currentChunkProgress, setCurrentChunkProgress] = useState({ current: 0, total: 0 });
 
   // Scroll to bottom of logs
   const logsEndRef = useRef<HTMLDivElement>(null);
@@ -309,32 +316,12 @@ export default function App() {
       content = generatedCards.join("\n");
       filename += ".csv";
       mimeType = "text/csv;charset=utf-8;";
-    } else if (exportFormat === "md") {
-      // Markdown format
+    } else if (exportFormat === "tsv") {
+      // TSV format - tab separated (better for Anki import)
       const cards = parseAllCards();
-      content = "# Anki Flashcards Export\n\n";
-      content += `> Generated ${new Date().toLocaleDateString()} • ${cards.length} cards\n\n---\n\n`;
-      cards.forEach((card, idx) => {
-        content += `## Card ${idx + 1}\n\n`;
-        content += `**Q:** ${card.question}\n\n`;
-        content += `**A:** ${card.answer}\n\n---\n\n`;
-      });
-      filename += ".md";
-      mimeType = "text/markdown;charset=utf-8;";
-    } else if (exportFormat === "json") {
-      // JSON format
-      const cards = parseAllCards();
-      content = JSON.stringify({
-        exportDate: new Date().toISOString(),
-        totalCards: cards.length,
-        cards: cards.map((c, i) => ({
-          id: i + 1,
-          question: c.question,
-          answer: c.answer
-        }))
-      }, null, 2);
-      filename += ".json";
-      mimeType = "application/json;charset=utf-8;";
+      content = cards.map(c => `${c.question}\t${c.answer}`).join("\n");
+      filename += ".txt";
+      mimeType = "text/tab-separated-values;charset=utf-8;";
     }
 
     const blob = new Blob([content], { type: mimeType });
@@ -387,8 +374,9 @@ export default function App() {
         addLog(`🎯 Focus Scope: ${topicScope}`);
       }
 
-      const gemini = new GeminiService(apiKey);
+      const gemini = new GeminiService(apiKey, selectedModel);
       geminiRef.current = gemini;
+      addLog(`🤖 Using model: ${selectedModel}`);
 
       // 1. Prepare Content
       let contentInput: ContentPart | ContentPart[];
@@ -469,14 +457,19 @@ export default function App() {
       const startTime = Date.now();
       let retriedChunks = 0;
       let blockedChunks = 0;
+      let estimatedInputTokens = 0;
+      let estimatedOutputTokens = 0;
 
       // Helper function for delay (rate limit protection)
       const delay = (ms: number) => new Promise(resolve => setTimeout(resolve, ms));
 
+      // Set initial progress
+      setCurrentChunkProgress({ current: 0, total: commandsToProcess.length });
+
       for (let i = 0; i < commandsToProcess.length; i++) {
         const cmd = commandsToProcess[i];
-        addLog(`Processing chunk ${i + 1}/${commandsToProcess.length}: ${cmd.slice(0, 50)}...`);
-        // setProgress(((i + 1) / commandsToProcess.length) * 100);
+        setCurrentChunkProgress({ current: i + 1, total: commandsToProcess.length });
+        addLog(`📦 [${i + 1}/${commandsToProcess.length}] ${cmd.slice(0, 60)}...`);
 
         // Rate limit protection: wait 1.5s between requests (allows ~40 req/min, under 60 limit)
         if (i > 0) {
@@ -486,29 +479,29 @@ export default function App() {
         try {
           // Use cached context - much cheaper!
           // Construct Prompt with History Awareness
+          // History for duplicate detection (50 concepts for best duplicate prevention)
           const historyText = conceptHistory.length > 0
-            ? `\n\n=== PREVIOUSLY GENERATED CONCEPTS ===\n(Do NOT create cards for these concepts again to avoid duplicates):\n- ${conceptHistory.slice(-50).join("\n- ")}`
+            ? `\n\n=== CÁC CÂU HỎI ĐÃ TẠO (TUYỆT ĐỐI KHÔNG LẶP LẠI) ===\n- ${conceptHistory.slice(-50).join("\n- ")}`
             : "";
 
           let cardOutput = "";
           let retried = false;
 
-          // Retry logic with multiple strategies
-          // CRITICAL: All attempts must include instruction to use ONLY source document knowledge
-          const sourceOnlyInstruction = "\n\nCRITICAL INSTRUCTION: Analyze the cached document ONLY. Do NOT use any external knowledge. All information must come DIRECTLY from the provided source document.";
-
+          // Retry logic with multiple strategies (optimized for token efficiency)
+          // First attempt: full instructions + history
+          // Retries: shorter prompts, no history (same chunk, already tried)
           const attempts = [
             {
               name: "Normal",
-              prompt: `USER COMMAND: ${cmd}${sourceOnlyInstruction}${historyText}`
+              prompt: `USER COMMAND: ${cmd}\n\n[SOURCE ONLY]${historyText}`
             },
             {
               name: "Paraphrase",
-              prompt: `USER COMMAND: ${cmd}\n\nIMPORTANT: Diễn đạt lại nội dung từ tài liệu nguồn BẰNG CÁCH KHÁC (paraphrase). Không trích dẫn nguyên văn nhưng VẪN PHẢI dựa hoàn toàn vào tài liệu nguồn.${sourceOnlyInstruction}${historyText}`
+              prompt: `USER COMMAND: ${cmd}\n\n[PARAPHRASE - SOURCE ONLY]`
             },
             {
               name: "Simplify",
-              prompt: `USER COMMAND: ${cmd}\n\nIMPORTANT: Tóm tắt nội dung từ tài liệu nguồn một cách ngắn gọn, đơn giản hơn. Tránh trích dẫn nguyên văn nhưng VẪN PHẢI lấy thông tin từ tài liệu nguồn.${sourceOnlyInstruction}${historyText}`
+              prompt: `USER COMMAND: ${cmd}\n\n[SIMPLIFY - SOURCE ONLY]`
             }
           ];
 
@@ -556,6 +549,13 @@ export default function App() {
           const cleanOutput = csvLines.join('\n');
           if (cleanOutput) {
             allCards.push(cleanOutput);
+
+            // Estimate tokens (rough: 4 chars ≈ 1 token)
+            const inputTokens = Math.round(cmd.length / 4) + 100; // prompt overhead
+            const outputTokens = Math.round(cleanOutput.length / 4);
+            estimatedInputTokens += inputTokens;
+            estimatedOutputTokens += outputTokens;
+
             if (retried) {
               addLog(`📝 Added ${csvLines.length} cards (paraphrased) from chunk ${i + 1}`);
             }
@@ -592,8 +592,16 @@ export default function App() {
         endTime
       });
 
+      // Update token usage
+      setTokenUsage({
+        input: estimatedInputTokens,
+        output: estimatedOutputTokens,
+        cached: estimatedInputTokens * 10 // Rough estimate: cached context is ~10x prompt tokens
+      });
+
       setGeneratedCards(allCards);
       setStatus("complete");
+      addLog(`✅ Complete! ~${Math.round((estimatedInputTokens + estimatedOutputTokens) / 1000)}K tokens used`);
       addToast(`Generation complete! ${allCards.length} chunks processed.`, "success");
     } catch (err: unknown) {
       console.error(err);
@@ -803,6 +811,18 @@ export default function App() {
                           className="w-full p-2 rounded-md bg-input border border-border"
                         />
                       </div>
+                      <div className="col-span-2">
+                        <label className="text-sm font-medium">AI Model</label>
+                        <select
+                          value={selectedModel}
+                          onChange={(e) => setSelectedModel(e.target.value)}
+                          className="w-full p-2 rounded-md bg-input border border-border"
+                        >
+                          <option value="gemini-2.5-flash-lite">⚡ 2.5 Flash-Lite (Rẻ nhất)</option>
+                          <option value="gemini-2.5-flash">🧠 2.5 Flash (Thinking mode)</option>
+                          <option value="gemini-3-flash-preview">🏆 3 Flash (Ít bịa nhất)</option>
+                        </select>
+                      </div>
                     </div>
                   </motion.div>
                 )}
@@ -840,6 +860,21 @@ export default function App() {
             animate={{ opacity: 1, y: 0 }}
             className="bg-muted/50 p-4 rounded-lg font-mono text-xs max-h-60 overflow-y-auto space-y-1 border border-border"
           >
+            {/* Progress Bar for Generating */}
+            {status === "generating" && currentChunkProgress.total > 0 && (
+              <div className="mb-3 space-y-2">
+                <div className="flex items-center justify-between text-sm font-medium">
+                  <span>📦 Processing: {currentChunkProgress.current}/{currentChunkProgress.total} chunks</span>
+                  <span>{Math.round((currentChunkProgress.current / currentChunkProgress.total) * 100)}%</span>
+                </div>
+                <div className="w-full bg-muted rounded-full h-2">
+                  <div
+                    className="bg-primary h-2 rounded-full transition-all duration-300"
+                    style={{ width: `${(currentChunkProgress.current / currentChunkProgress.total) * 100}%` }}
+                  />
+                </div>
+              </div>
+            )}
             {logs.map((log, i) => (
               <div key={i} className="text-muted-foreground break-words">{log}</div>
             ))}
@@ -935,12 +970,11 @@ export default function App() {
                 <div className="flex items-center gap-0 bg-card border border-border rounded-md overflow-hidden">
                   <select
                     value={exportFormat}
-                    onChange={(e) => setExportFormat(e.target.value as "csv" | "md" | "json")}
+                    onChange={(e) => setExportFormat(e.target.value as "csv" | "tsv")}
                     className="bg-transparent text-sm px-2 py-2 outline-none cursor-pointer"
                   >
                     <option value="csv">CSV</option>
-                    <option value="md">MD</option>
-                    <option value="json">JSON</option>
+                    <option value="tsv">TSV</option>
                   </select>
                   <button
                     onClick={handleExport}
@@ -968,6 +1002,7 @@ export default function App() {
               totalParsedCards={calculateStats()?.totalCards || 0}
               durationString={calculateStats()?.duration || "N/A"}
               cardsPerMinute={calculateStats()?.cardsPerMinute || 0}
+              tokenUsage={tokenUsage}
             />
 
             <CardList

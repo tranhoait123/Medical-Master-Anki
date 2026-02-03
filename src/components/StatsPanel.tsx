@@ -8,6 +8,7 @@ interface StatsPanelProps {
     totalParsedCards: number;
     durationString: string;
     cardsPerMinute: number;
+    tokenUsage?: { input: number; output: number; cached: number };
 }
 
 export function StatsPanel({
@@ -16,8 +17,11 @@ export function StatsPanel({
     generatedCardsCount,
     totalParsedCards,
     durationString,
-    cardsPerMinute
+    cardsPerMinute,
+    tokenUsage
 }: StatsPanelProps) {
+    const totalTokens = tokenUsage ? tokenUsage.input + tokenUsage.output : 0;
+
     return (
         <AnimatePresence>
             {showStats && (
@@ -48,9 +52,17 @@ export function StatsPanel({
                         </div>
                     </div>
                     {stats && (
-                        <div className="mt-2 text-center text-xs text-muted-foreground">
-                            ⏱️ Generated in {durationString} •
-                            ~{cardsPerMinute} cards/min
+                        <div className="mt-2 text-center text-xs text-muted-foreground space-y-1">
+                            <div>
+                                ⏱️ Generated in {durationString} •
+                                ~{cardsPerMinute} cards/min
+                            </div>
+                            {totalTokens > 0 && (
+                                <div className="text-primary">
+                                    🎫 ~{Math.round(totalTokens / 1000)}K tokens used
+                                    (Input: {Math.round(tokenUsage!.input / 1000)}K, Output: {Math.round(tokenUsage!.output / 1000)}K)
+                                </div>
+                            )}
                         </div>
                     )}
                 </motion.div>
