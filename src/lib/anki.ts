@@ -38,7 +38,7 @@ export class AnkiConnectService {
         }
     }
 
-    async addNote(front: string, back: string) {
+    async addNote(front: string, back: string, tags: string[] = []) {
         return this.request("addNote", {
             note: {
                 deckName: this.deckName,
@@ -56,7 +56,7 @@ export class AnkiConnectService {
                         checkAllModels: false
                     }
                 },
-                tags: ["notebooklm-gen"],
+                tags: ["medical-master", ...tags],
             },
         });
     }
