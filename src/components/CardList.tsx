@@ -1,19 +1,18 @@
-import { Trash2, Search, X } from "lucide-react";
 import { motion } from "framer-motion";
+import { Search, X, Trash2 } from "lucide-react";
 import { cn } from "../lib/utils";
-import type { Card } from "../types.ts";
 
 interface CardListProps {
     viewMode: "raw" | "preview";
     setViewMode: (mode: "raw" | "preview") => void;
     generatedCards: string[];
-    filteredCards: Card[];
+    filteredCards: { question: string; answer: string; chunkIdx: number; cardIdx: number }[];
     searchQuery: string;
     setSearchQuery: (query: string) => void;
     handleDeleteCard: (index: number) => void;
-    handleCardUpdate: (index: number, val: string) => void;
+    handleCardUpdate: (index: number, newContent: string) => void;
     flippedCards: Set<number>;
-    toggleCardFlip: (index: number) => void;
+    toggleCardFlip: (cardIndex: number) => void;
 }
 
 export function CardList({
@@ -99,39 +98,47 @@ export function CardList({
                             initial={{ opacity: 0, y: 20 }}
                             animate={{ opacity: 1, y: 0 }}
                             transition={{ delay: idx * 0.02 }}
+                            style={{ perspective: "1000px" }}
                         >
                             <div
                                 onClick={() => toggleCardFlip(idx)}
-                                className="cursor-pointer transition-all duration-500"
+                                className="cursor-pointer relative"
                                 style={{
                                     transformStyle: "preserve-3d",
+                                    transition: "transform 0.5s",
                                     transform: flippedCards.has(idx) ? "rotateY(180deg)" : "rotateY(0deg)",
                                 }}
                             >
                                 {/* Front - Question */}
-                                {!flippedCards.has(idx) ? (
-                                    <div className="min-h-[180px] rounded-xl border-2 border-primary/30 bg-gradient-to-br from-primary/5 to-primary/10 p-4 flex flex-col">
-                                        <div className="flex items-center justify-between mb-2">
-                                            <span className="text-xs font-bold text-primary uppercase">Question</span>
-                                            <span className="text-xs text-muted-foreground">#{idx + 1}</span>
-                                        </div>
-                                        <p className="text-sm text-foreground flex-1 overflow-y-auto">{card.question}</p>
-                                        <p className="text-xs text-muted-foreground mt-2 text-center">👆 Click to reveal answer</p>
+                                <div 
+                                    className="min-h-[180px] rounded-xl border-2 border-primary/30 bg-gradient-to-br from-primary/5 to-primary/10 p-4 flex flex-col"
+                                    style={{ backfaceVisibility: "hidden" }}
+                                >
+                                    <div className="flex items-center justify-between mb-2">
+                                        <span className="text-xs font-bold text-primary uppercase">Question</span>
+                                        <span className="text-xs text-muted-foreground">#{idx + 1}</span>
                                     </div>
-                                ) : (
-                                    /* Back - Answer */
-                                    <div className="min-h-[180px] rounded-xl border-2 border-green-500/30 bg-gradient-to-br from-green-500/5 to-green-500/10 p-4 flex flex-col">
-                                        <div className="flex items-center justify-between mb-2">
-                                            <span className="text-xs font-bold text-green-500 uppercase">Answer</span>
-                                            <span className="text-xs text-muted-foreground">#{idx + 1}</span>
-                                        </div>
-                                        <div
-                                            className="text-sm text-foreground flex-1 overflow-y-auto"
-                                            dangerouslySetInnerHTML={{ __html: card.answer }}
-                                        />
-                                        <p className="text-xs text-muted-foreground mt-2 text-center">👆 Click to flip back</p>
+                                    <p className="text-sm text-foreground flex-1 overflow-y-auto">{card.question}</p>
+                                    <p className="text-xs text-muted-foreground mt-2 text-center">👆 Click to reveal answer</p>
+                                </div>
+                                {/* Back - Answer (pre-rotated 180deg so it appears correctly when flipped) */}
+                                <div 
+                                    className="absolute inset-0 min-h-[180px] rounded-xl border-2 border-green-500/30 bg-gradient-to-br from-green-500/5 to-green-500/10 p-4 flex flex-col"
+                                    style={{
+                                        backfaceVisibility: "hidden",
+                                        transform: "rotateY(180deg)",
+                                    }}
+                                >
+                                    <div className="flex items-center justify-between mb-2">
+                                        <span className="text-xs font-bold text-green-500 uppercase">Answer</span>
+                                        <span className="text-xs text-muted-foreground">#{idx + 1}</span>
                                     </div>
-                                )}
+                                    <div
+                                        className="text-sm text-foreground flex-1 overflow-y-auto"
+                                        dangerouslySetInnerHTML={{ __html: card.answer }}
+                                    />
+                                    <p className="text-xs text-muted-foreground mt-2 text-center">👆 Click to flip back</p>
+                                </div>
                             </div>
                         </motion.div>
                     ))}
