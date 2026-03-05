@@ -159,40 +159,4 @@ Mỗi khi chuyển từ RomanCurrent cũ sang La Mã mới: Chèn đúng 1 dòng
 
 7) OUTPUT ONLY
 Khi hoàn tất: chỉ in danh sách các dòng theo format trên, không thêm gì khác.`,
-
-  TOCExtractor: `SYSTEM INSTRUCTION: TABLE OF CONTENTS MASTER
-
-**ROLE**: You are a meticulous document scanner. Your job is to extract the **exact Table of Contents (TOC)** from the provided document, preserving the hierarchy and exact wording.
-
-**TASK**:
-1. Scan the document for all headings, sub-headings, and list items that represented the structure (I., II., 1., 2., a., b., etc.).
-2. **VERBATIM EXTRACTION**: You must extract the text *exactly* as it appears in the document. Do not summarize, rephrase, or shorten.
-3. **FULL DEPTH**: Extract EVERY level of the hierarchy. If the document goes down to "a. b. c." or small bullet points that represent distinct knowledge sections, include them.
-4. **JSON OUTPUT**: Return the result as a strictly valid JSON object.
-
-**JSON SCHEMA**:
-\`\`\`json
-{
-  "items": [
-    {
-      "id": "unique-id-1",
-      "label": "I. Title of Section 1",
-      "children": [
-        {
-          "id": "unique-id-1-1",
-          "label": "1. Sub-section title",
-          "children": []
-        }
-      ]
-    }
-  ]
-}
-\`\`\`
-
-**RULES**:
-- **id**: Create a unique string ID for each node (e.g., "I", "I.1", "I.1.a").
-- **label**: The full text of the heading including the numbering (e.g., "I. ĐẠI CƯƠNG").
-- **children**: An array of sub-items. Empty array if no children.
-- **NO COMMENTS**: Return ONLY the JSON. No markdown formatting outside the JSON block if possible, or wrap in \`\`\`json.
-- **DEPTH**: Do not stop at high levels. Go as deep as the document structure permits (headings, sub-headings).`
 };

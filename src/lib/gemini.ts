@@ -4,8 +4,8 @@ export type ContentPart = { inlineData: { data: string; mimeType: string } } | s
 
 export class GeminiService {
     private ai: GoogleGenAI;
-    private modelName = "gemini-2.5-flash-lite"; // Stable, cost-effective, supports caching
-    private fallbackModelName = "gemini-2.0-flash"; // Fallback until March 2026
+    private modelName = "gemini-2.5-flash"; // GA, stable, cost-effective, supports caching
+    private fallbackModelName = "gemini-2.5-flash-lite"; // GA fallback
     private cacheName: string | null = null;
     private maxRetries = 3;
 
