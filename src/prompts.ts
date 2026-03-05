@@ -35,7 +35,7 @@ export const PROMPTS = {
 * Nếu thiếu dữ liệu/không thấy trong nguồn: ghi rõ \`⚠️ Thiếu dữ liệu trong nguồn\` thay vì tự bổ sung.
 
 ### 1.6 Formatting Integrity (Toàn vẹn định dạng)
-* Mỗi dòng thẻ chỉ có **01 dấu TAB** phân tách Q và A.
+* Mỗi dòng thẻ phải có đúng **02 dấu TAB** để phân tách 3 thành phần: Q, A, Tags.
 * Trong nội dung Q/A **cấm** có TAB hoặc xuống dòng thực tế.
 * Tất cả xuống dòng hiển thị phải thay bằng \`<br>\`. Danh sách bắt buộc dùng \`<ul><li>...</li></ul>\`.
 
@@ -64,7 +64,7 @@ I. [CHỦ ĐỀ LỚN]
       b. [Triệu chứng lâm sàng]: [Cơ năng & Thực thể]
       c. [Điều trị - Thuốc X]: [Chỉ định, Liều, Lưu ý]
 ...
-(Cuối outline): Yêu cầu chọn tọa độ (vd: I.0 hoặc I.1.a) để vào GĐ2.
+(Hệ thống sẽ tự động xử lý toàn bộ outline để vào GĐ2.)
 
 ---
 
@@ -95,7 +95,7 @@ Phải bao gồm đầy đủ các phần sau theo đúng thứ tự:
 * **Mechanism:** Tại sao? (Yêu cầu giải thích sâu, step-by-step).
 * **Clinical reasoning:** Xử trí tình huống, biện luận, DDx, "bước rẽ" quyết định.
 
-### 3.6 Quy tắc xử lý độ dài (AUTO-CHUNK)
+### 3.4 Quy tắc xử lý độ dài (AUTO-CHUNK)
 * Nếu nội dung mục chọn quá dài:
   1) Tự động chia output thành nhiều Code Block liên tiếp trong CÙNG MỘT LẦN TRẢ LỜI.
   2) Không viết bất kỳ dòng văn bản nào ngoài Code Block.

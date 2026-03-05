@@ -6,7 +6,7 @@ import { Upload, FileText, CheckCircle, Loader2, Download, Play, Settings, Alert
 import { cn } from "./lib/utils";
 import { motion, AnimatePresence } from "framer-motion";
 
-type AppState = "idle" | "uploading" | "analyzing" | "scanning_toc" | "extracting" | "reviewing" | "generating" | "complete" | "error";
+type AppState = "idle" | "uploading" | "analyzing" | "extracting" | "generating" | "complete" | "error";
 
 
 
@@ -23,7 +23,7 @@ export default function App() {
   const [errorMsg, setErrorMsg] = useState("");
   const [showConfig, setShowConfig] = useState(true);
   const [selectedModel, setSelectedModel] = useState("gemini-2.5-flash");
-  const [commands, setCommands] = useState<string[]>([]);
+
   const [dragActive, setDragActive] = useState(false);
   const geminiRef = useRef<GeminiService | null>(null);
 
@@ -95,6 +95,7 @@ export default function App() {
       setLogs([]);
       setGeneratedCards([]);
       setStatus("uploading");
+      setProgress(5);
       addLog("🚀 Starting analysis...");
 
       if (topicScope.trim()) {
@@ -129,12 +130,14 @@ export default function App() {
       addLog("📦 Creating context cache (saves ~90% tokens)...");
       await gemini.createCache(corePrompt, cacheContent);
       geminiRef.current = gemini;
+      setProgress(15);
       addLog("✅ Cache created! Subsequent calls will be much cheaper.");
 
       // Phase 1: Generate outline using cached context
       const phase1Command = `USER COMMAND: Giai đoạn 1 bài ${contentName}. ${userFocus}`;
       addLog("⏳ Sending request to Gemini (Phase 1)...");
       const phase1Output = await gemini.generateWithCache(phase1Command);
+      setProgress(35);
       addLog("✅ Outline generated.");
 
       // Step 2: Extract concepts
@@ -149,7 +152,7 @@ export default function App() {
         throw new Error("Could not identify processing commands. Please check input quality.");
       }
 
-      setCommands(cmds);
+      setProgress(50);
       addLog(`✅ Analysis complete. Found ${cmds.length} chunks.`);
 
       // AUTO-START GENERATION
@@ -165,7 +168,7 @@ export default function App() {
     }
   };
 
-  const startGeneration = async (directCommands?: string[]) => {
+  const startGeneration = async (cmds: string[]) => {
     try {
       setStatus("generating");
       addLog("🟣 Starting generation (using cached context)...");
@@ -175,13 +178,12 @@ export default function App() {
         throw new Error("Cache expired or not available. Please re-analyze the document.");
       }
 
-      const activeCommands = directCommands || commands;
       const allCards: string[] = [];
 
-      for (let i = 0; i < activeCommands.length; i++) {
-        const cmd = activeCommands[i];
-        addLog(`Processing chunk ${i + 1}/${activeCommands.length}: ${cmd.slice(0, 50)}...`);
-        setProgress(((i + 1) / activeCommands.length) * 100);
+      for (let i = 0; i < cmds.length; i++) {
+        const cmd = cmds[i];
+        addLog(`Processing chunk ${i + 1}/${cmds.length}: ${cmd.slice(0, 50)}...`);
+        setProgress(50 + ((i + 1) / cmds.length) * 50);
 
         try {
           // Use cached context - much cheaper!
@@ -197,9 +199,6 @@ export default function App() {
       }
 
       addLog("✅ All chunks processed.");
-      addLog("🧹 Cleaning up cache...");
-      await gemini.deleteCache();
-
       setGeneratedCards(allCards);
       setStatus("complete");
     } catch (err: unknown) {
@@ -208,6 +207,13 @@ export default function App() {
       setErrorMsg(msg || "An unknown error occurred.");
       setStatus("error");
       addLog(`❌ Error: ${msg}`);
+    } finally {
+      // Always clean up cache
+      const gemini = geminiRef.current;
+      if (gemini?.hasCache()) {
+        addLog("🧹 Cleaning up cache...");
+        await gemini.deleteCache();
+      }
     }
   };
 
@@ -222,8 +228,7 @@ export default function App() {
       .map(line => line.trim())
       .filter(line => line.length > 0) // Remove empty lines
       .filter(line => !line.startsWith("```")) // Remove markdown code blocks
-      .filter(line => !line.match(/^(html|xml|json|markdown)$/i)) // Remove language tags
-      .filter(line => !line.match(/^(html|xml|json|markdown)$/i)) // Remove language tags
+      .filter(line => !line.match(/^(html|xml|json|markdown|txt|text)$/i)) // Remove language tags
       .filter(line => line.includes("\t")); // Keep only valid Q<Tab>A lines
 
     // Post-process for tags in TXT export
@@ -254,7 +259,7 @@ export default function App() {
     const url = URL.createObjectURL(blob);
     const a = document.createElement("a");
     a.href = url;
-    a.download = `anki_export_${file?.name || "data"}.txt`;
+    a.download = `anki_export_${file?.name || topicScope.trim().replace(/\s+/g, '_') || "data"}.txt`;
     document.body.appendChild(a);
     a.click();
     document.body.removeChild(a);
@@ -479,7 +484,7 @@ export default function App() {
       {(status !== "idle" || logs.length > 0) && (
         <div className="space-y-4">
           {/* Progress Bar */}
-          {(status === "generating" || status === "complete") && (
+          {status !== "idle" && status !== "error" && (
             <div className="w-full space-y-2">
               <div className="flex justify-between text-xs text-muted-foreground uppercase font-semibold tracking-wider">
                 <span>Progress</span>
