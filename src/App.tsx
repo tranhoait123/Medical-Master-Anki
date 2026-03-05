@@ -2,7 +2,7 @@ import { useState, useRef, useEffect } from "react";
 import { GeminiService } from "./lib/gemini";
 import { fileToGenerativePart } from "./lib/file-processing";
 import { PROMPTS } from "./prompts";
-import { Upload, FileText, CheckCircle, Loader2, Download, Play, Settings, AlertCircle } from "lucide-react";
+import { Upload, FileText, CheckCircle, Loader2, Download, Play, Settings, AlertCircle, ChevronDown, ChevronUp, ListFilter } from "lucide-react";
 import { cn } from "./lib/utils";
 import { motion, AnimatePresence } from "framer-motion";
 
@@ -23,6 +23,8 @@ export default function App() {
   const [errorMsg, setErrorMsg] = useState("");
   const [showConfig, setShowConfig] = useState(true);
   const [selectedModel, setSelectedModel] = useState("gemini-2.5-flash");
+  const [outline, setOutline] = useState("");
+  const [showOutline, setShowOutline] = useState(false);
 
   const [dragActive, setDragActive] = useState(false);
   const geminiRef = useRef<GeminiService | null>(null);
@@ -117,6 +119,8 @@ export default function App() {
 
       // Step 1: Analyze structure
       setStatus("analyzing");
+      setOutline("");
+      setShowOutline(false);
       addLog("🔵 Analyzing document structure...");
 
       const corePrompt = PROMPTS.MedicalTutor;
@@ -137,6 +141,7 @@ export default function App() {
       const phase1Command = `USER COMMAND: Giai đoạn 1 bài ${contentName}. ${userFocus}`;
       addLog("⏳ Sending request to Gemini (Phase 1)...");
       const phase1Output = await gemini.generateWithCache(phase1Command);
+      setOutline(phase1Output);
       setProgress(35);
       addLog("✅ Outline generated.");
 
@@ -510,6 +515,40 @@ export default function App() {
             ))}
             <div ref={logsEndRef} />
           </div>
+
+          {/* Logic Outline Display */}
+          {outline && (
+            <motion.div
+              initial={{ height: 0, opacity: 0 }}
+              animate={{ height: "auto", opacity: 1 }}
+              className="border border-border rounded-lg overflow-hidden bg-muted/30"
+            >
+              <button
+                onClick={() => setShowOutline(!showOutline)}
+                className="w-full p-3 flex items-center justify-between text-sm font-semibold hover:bg-muted transition-colors"
+              >
+                <div className="flex items-center gap-2">
+                  <ListFilter className="w-4 h-4 text-primary" />
+                  View Generation Logic Outline
+                </div>
+                {showOutline ? <ChevronUp className="w-4 h-4" /> : <ChevronDown className="w-4 h-4" />}
+              </button>
+              <AnimatePresence>
+                {showOutline && (
+                  <motion.div
+                    initial={{ height: 0 }}
+                    animate={{ height: "auto" }}
+                    exit={{ height: 0 }}
+                    className="overflow-hidden"
+                  >
+                    <div className="p-4 pt-0 text-xs font-mono whitespace-pre-wrap text-muted-foreground border-t border-border line-clamp-20 max-h-96 overflow-y-auto bg-black/40">
+                      {outline}
+                    </div>
+                  </motion.div>
+                )}
+              </AnimatePresence>
+            </motion.div>
+          )}
         </div>
       )}
 
@@ -522,10 +561,20 @@ export default function App() {
         >
           <div className="flex flex-col md:flex-row items-center justify-between gap-4">
             <h2 className="text-2xl font-bold text-green-500 flex items-center gap-2">
-              <CheckCircle className="w-6 h-6" /> Generated Cards ({generatedCards.length})
+              <CheckCircle className="w-6 h-6" /> Generation Results
             </h2>
-            <div className="flex items-center gap-2">
-              {/* Spacer if needed */}
+            <div className="flex items-center gap-4 bg-muted/50 px-4 py-2 rounded-full">
+              <div className="text-center">
+                <div className="text-xs text-muted-foreground uppercase font-bold tracking-tighter">Total Cards</div>
+                <div className="text-xl font-mono text-foreground">
+                  {generatedCards.join("\n").split("\n").filter(l => l.includes("\t")).length}
+                </div>
+              </div>
+              <div className="w-px h-8 bg-border" />
+              <div className="text-center">
+                <div className="text-xs text-muted-foreground uppercase font-bold tracking-tighter">AI Chunks</div>
+                <div className="text-xl font-mono text-foreground">{generatedCards.length}</div>
+              </div>
             </div>
           </div>
 

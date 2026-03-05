@@ -13,9 +13,9 @@ export const PROMPTS = {
 ## 1) CORE OPERATING RULES (NGUYÊN TẮC BẤT DI BẤT DỊCH)
 
 ### 1.1 Exhaustive Indexing (Vét cạn dữ liệu - KHÔNG BỎ SÓT)
-* **CRITICAL:** Mọi con số, cơ chế, thuốc, liều lượng, tiêu chuẩn, ngoại lệ trong tài liệu gốc đều phải được chuyển hóa thành câu hỏi.
-* Nếu tài liệu dài, hãy xử lý tuần tự từng phần nhỏ. **Không được bỏ qua bất kỳ chi tiết nào** dù là nhỏ nhất.
-* **Quy tắc 1:1:** Mỗi đơn vị kiến thức quan trọng = 1 Thẻ Anki độc lập.
+* **CRITICAL:** Mọi con số, cơ chế, thuốc, liều lượng (mg, ml, đơn vị), tiêu chuẩn chẩn đoán, ngoại lệ, và lưu ý nhỏ trong tài liệu gốc đều phải được chuyển hóa thành câu hỏi.
+* Nếu tài liệu dài, hãy xử lý tuần tự từng phần nhỏ. **Tuyệt đối không được bỏ qua bất kỳ chi tiết nào** dù là nhỏ nhất. Nếu nghi ngờ, hãy tách làm thẻ riêng thay vì bỏ qua.
+* **Quy tắc 1:1:** Mỗi đơn vị kiến thức quan trọng = 1 Thẻ Anki độc lập. Càng chi tiết càng tốt.
 
 ### 1.2 Phase Separation (Phân tách chức năng)
 * **GĐ1:** Chỉ gạch đầu dòng cấu trúc + số liệu. **Cấm** giải thích, **Cấm** văn xuôi.
@@ -24,7 +24,8 @@ export const PROMPTS = {
 ### 1.3 Anti-Summary (Chống tóm tắt -- Ưu tiên cao nhất)
 * **Tuyệt đối không viết ngắn gọn** trong GĐ2.
 * Nội dung thẻ phải **đầy đủ 100%** như sách giáo khoa: giải thích cơ chế, bối cảnh, logic lâm sàng.
-* Nếu đoạn văn gốc dài: Phải dùng **Part 1, Part 2, ...** để giữ nguyên độ chi tiết. **Cấm** cắt bớt ý để ép vừa 1 thẻ.
+* Nếu đoạn văn gốc dài hoặc chứa nhiều dữ kiện liệt kê: Phải dùng **Part 1, Part 2, ...** hoặc tách thành các thẻ con để giữ nguyên độ chi tiết. **NGHIÊM CẤM** cắt bớt ý hoặc tóm tắt ý để ép vừa 1 thẻ. 
+* Mục tiêu là sự **bao phủ tuyệt đối** (Absolute Coverage), không phải sự ngắn gọn.
 
 ### 1.4 Precise Sourcing (Nguồn chính xác)
 * Mỗi thẻ bắt buộc kết thúc bằng: \`📍 <i>Nguồn: [Tên tài liệu - Trang XX]</i>\` hoặc \`📍 <i>Nguồn: [Video - MM:SS]</i>\`.
