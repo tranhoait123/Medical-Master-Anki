@@ -24,10 +24,5 @@ jobs:
       - name: Build
         run: npm run build
 
-      - name: Install Firebase CLI
-        run: npm install -g firebase-tools
-
       - name: Deploy to Firebase Hosting
-        run: firebase deploy --only hosting --project medical-master-anki
-        env:
-          FIREBASE_TOKEN: ${{ secrets.FIREBASE_TOKEN }}
+        run: npx firebase deploy --only hosting --project medical-master-anki --token "${{ secrets.FIREBASE_TOKEN }}"
