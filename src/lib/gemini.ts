@@ -3,9 +3,10 @@ import { GoogleGenAI, createUserContent } from "@google/genai";
 export type ContentPart = { inlineData: { data: string; mimeType: string } } | string;
 
 export class GeminiService {
-    private ai: GoogleGenAI;
-    private modelName = "gemini-2.5-flash"; // GA, stable, cost-effective, supports caching
-    private fallbackModelName = "gemini-2.5-flash-lite"; // GA fallback
+    private ais: GoogleGenAI[];
+    private currentKeyIndex = 0;
+    private modelName = "gemini-3.1-flash-lite-preview"; // GA, stable, cost-effective, supports caching
+    private fallbackModelName = "gemini-2.5-flash"; // GA fallback
     private cacheName: string | null = null;
     private maxRetries = 3;
 
@@ -13,8 +14,24 @@ export class GeminiService {
     private lastSystemPrompt: string = "";
     private lastContent: ContentPart | ContentPart[] | null = null;
 
-    constructor(apiKey: string, modelName?: string) {
-        this.ai = new GoogleGenAI({ apiKey });
+    private get ai(): GoogleGenAI {
+        return this.ais[this.currentKeyIndex];
+    }
+
+    private rotateKey(): boolean {
+        if (this.currentKeyIndex + 1 < this.ais.length) {
+            this.currentKeyIndex++;
+            console.warn(`[API Key Rotation] Đã đổi sang phân mảnh API Key thứ ${this.currentKeyIndex + 1} do lỗi bị kiệt quệ Quota.`);
+            return true;
+        }
+        return false;
+    }
+
+    constructor(apiKeys: string[], modelName?: string) {
+        if (!apiKeys || apiKeys.length === 0) {
+            throw new Error("Vui lòng cung cấp ít nhất 1 API Key");
+        }
+        this.ais = apiKeys.map(key => new GoogleGenAI({ apiKey: key }));
         if (modelName) {
             this.modelName = modelName;
         }
@@ -59,28 +76,49 @@ export class GeminiService {
         this.lastSystemPrompt = systemInstruction;
         this.lastContent = content;
 
-        try {
-            const cache = await this.ai.caches.create({
-                model: this.modelName,
-                config: {
-                    contents: createUserContent(contentParts),
-                    systemInstruction: systemInstruction,
-                    ttl: "3600s", // 1 hour
-                },
-            });
+        for (let attempt = 1; attempt <= this.maxRetries; attempt++) {
+            try {
+                const cache = await this.ai.caches.create({
+                    model: this.modelName,
+                    config: {
+                        contents: createUserContent(contentParts),
+                        systemInstruction: systemInstruction,
+                        ttl: "3600s", // 1 hour
+                    },
+                });
 
-            this.cacheName = cache.name!;
-            return this.cacheName;
-        } catch (error: unknown) {
-            const err = error as { status?: number; message?: string };
-            // Cache too small error - fallback to non-cached mode
-            if (err.status === 400 && err.message?.includes("too small")) {
-                console.warn("Content too small for caching (< 4096 tokens). Using non-cached mode.");
-                this.cacheName = null;
-                return ""; // Empty string indicates non-cached mode
+                this.cacheName = cache.name!;
+                return this.cacheName;
+            } catch (error: unknown) {
+                const err = error as { status?: number; message?: string };
+                // Cache too small error - fallback to non-cached mode
+                if (err.status === 400 && err.message?.toLowerCase().includes("too small")) {
+                    console.warn("Content too small for caching (< 4096 tokens). Using non-cached mode.");
+                    this.cacheName = null;
+                    return ""; // Empty string indicates non-cached mode
+                }
+                
+                if (this.isRetryableError(error)) {
+                    if (err.status === 429 || (err.message && err.message.toLowerCase().includes("quota"))) {
+                        console.warn(`[Quota Exhausted in Cache Creation] Key index ${this.currentKeyIndex} is dead.`);
+                        if (this.rotateKey()) {
+                            attempt = 0; // Reset retry counter for new key
+                            continue;
+                        } else {
+                            throw new Error("Tất cả API Key dự phòng đều đã kiệt quệ (Lỗi 429/Quota). Bạn cần bổ sung thêm Key mới.");
+                        }
+                    } else {
+                        const backoffMs = Math.min(1000 * Math.pow(2, attempt - 1), 8000);
+                        console.warn(`Attempt ${attempt}/${this.maxRetries} failed (${err.status || 'unknown'}). Retrying in ${backoffMs}ms...`);
+                        await this.delay(backoffMs);
+                        continue;
+                    }
+                }
+                
+                throw error;
             }
-            throw error;
         }
+        throw new Error("Lỗi kết nối API sau nhiều lần thử lại khi tạo Caching.");
     }
 
     /**
@@ -130,10 +168,25 @@ export class GeminiService {
 
                 // Check for retryable errors (503, 429)
                 if (this.isRetryableError(error)) {
-                    const backoffMs = Math.min(1000 * Math.pow(2, attempt - 1), 8000);
-                    console.warn(`Attempt ${attempt}/${this.maxRetries} failed (${err.status || 'unknown'}). Retrying in ${backoffMs}ms...`);
-                    await this.delay(backoffMs);
-                    continue;
+                    if (err.status === 429 || (err.message && err.message.toLowerCase().includes("quota"))) {
+                        console.warn(`[Quota Exhausted] Key index ${this.currentKeyIndex} is dead.`);
+                        if (this.rotateKey()) {
+                            // MUST rebuild cache under the new key!
+                            console.warn("Rebuilding cache under the new API key...");
+                            if (this.lastSystemPrompt && this.lastContent) {
+                                await this.createCache(this.lastSystemPrompt, this.lastContent);
+                                attempt = 0; // Reset loop counter so the new key gets full 3 retries
+                                continue;
+                            }
+                        } else {
+                            throw new Error("Tất cả API Key dự phòng đều đã kiệt quệ (Lỗi 429/Quota). Bạn cần bổ sung thêm Key mới.");
+                        }
+                    } else {
+                        const backoffMs = Math.min(1000 * Math.pow(2, attempt - 1), 8000);
+                        console.warn(`Attempt ${attempt}/${this.maxRetries} failed (${err.status || 'unknown'}). Retrying in ${backoffMs}ms...`);
+                        await this.delay(backoffMs);
+                        continue;
+                    }
                 }
 
                 throw error; // Non-retryable error
@@ -164,14 +217,24 @@ export class GeminiService {
                 lastError = error;
 
                 if (this.isRetryableError(error)) {
-                    const backoffMs = Math.min(1000 * Math.pow(2, attempt - 1), 8000);
-                    console.warn(`Attempt ${attempt}/${this.maxRetries} failed (retryable). Retrying in ${backoffMs}ms...`);
-                    await this.delay(backoffMs);
+                    const err = error as { status?: number; message?: string };
+                    if (err.status === 429 || (err.message && err.message.toLowerCase().includes("quota"))) {
+                        if (this.rotateKey()) {
+                            attempt = 0; // Reset attempt for new key
+                            continue; // Retry with new key immediately
+                        } else {
+                            throw new Error("Tất cả API Key dự phòng đều đã kiệt quệ (Lỗi 429). Bạn cần bổ sung thêm Key mới.");
+                        }
+                    } else {
+                        const backoffMs = Math.min(1000 * Math.pow(2, attempt - 1), 8000);
+                        console.warn(`Attempt ${attempt}/${this.maxRetries} failed (retryable). Retrying in ${backoffMs}ms...`);
+                        await this.delay(backoffMs);
 
-                    // Try fallback model on last retry
-                    if (attempt === this.maxRetries - 1) {
-                        console.warn(`Switching to fallback model: ${this.fallbackModelName}`);
-                        currentModel = this.fallbackModelName;
+                        // Try fallback model on last retry
+                        if (attempt === this.maxRetries - 1) {
+                            console.warn(`Switching to fallback model: ${this.fallbackModelName}`);
+                            currentModel = this.fallbackModelName;
+                        }
                     }
                 } else {
                     throw error; // Non-retryable error, throw immediately

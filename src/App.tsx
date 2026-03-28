@@ -22,7 +22,7 @@ export default function App() {
   const [generatedCards, setGeneratedCards] = useState<string[]>([]);
   const [errorMsg, setErrorMsg] = useState("");
   const [showConfig, setShowConfig] = useState(true);
-  const [selectedModel, setSelectedModel] = useState("gemini-2.5-flash");
+  const [selectedModel, setSelectedModel] = useState("gemini-3.1-flash-lite-preview");
   const [outline, setOutline] = useState("");
   const [showOutline, setShowOutline] = useState(false);
 
@@ -115,7 +115,12 @@ export default function App() {
         addLog(`✅ Text content ready.`);
       }
 
-      const gemini = new GeminiService(apiKey, selectedModel);
+      const keys = apiKey.split(',').map(k => k.trim()).filter(Boolean);
+      if (keys.length === 0) {
+        setErrorMsg("Please enter at least 1 valid API Key.");
+        return;
+      }
+      const gemini = new GeminiService(keys, selectedModel);
 
       // Step 1: Analyze structure
       setStatus("analyzing");
@@ -346,7 +351,7 @@ export default function App() {
                     type="password"
                     value={apiKey}
                     onChange={(e) => setApiKey(e.target.value)}
-                    placeholder="Enter your AI Studio API key (starts with AIza...)"
+                    placeholder="Nhập 1 hoặc nhiều API Key cách nhau bởi dấu phẩy (,)"
                     className="w-full p-2 rounded-md bg-input border border-border focus:ring-2 focus:ring-primary outline-none transition-all"
                   />
 
@@ -362,11 +367,11 @@ export default function App() {
                     onChange={(e) => setSelectedModel(e.target.value)}
                     className="w-full p-2 rounded-md bg-input border border-border focus:ring-2 focus:ring-primary outline-none transition-all"
                   >
-                    <option value="gemini-2.5-flash">⚡ Gemini 2.5 Flash (Recommended)</option>
+                    <option value="gemini-3.1-flash-lite-preview">🔬 Gemini 3.1 Flash-Lite (Recommended)</option>
+                    <option value="gemini-2.5-flash">⚡ Gemini 2.5 Flash</option>
                     <option value="gemini-2.5-pro">🧠 Gemini 2.5 Pro</option>
-                    <option value="gemini-2.5-flash-lite">💨 Gemini 2.5 Flash-Lite (Fastest)</option>
+                    <option value="gemini-2.5-flash-lite">💨 Gemini 2.5 Flash-Lite</option>
                     <option value="gemini-3-flash-preview">🔬 Gemini 3 Flash (Preview)</option>
-                    <option value="gemini-3.1-flash-lite-preview">🔬 Gemini 3.1 Flash-Lite (Preview)</option>
                   </select>
                 </div>
               </motion.div>
