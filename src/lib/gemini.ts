@@ -1,6 +1,6 @@
 import { GoogleGenAI, createUserContent } from "@google/genai";
 
-export type ContentPart = { inlineData: { data: string; mimeType: string } } | string;
+export type ContentPart = { inlineData: { data: string; mimeType: string } } | { text: string } | string;
 
 export class GeminiService {
     private ais: GoogleGenAI[];
@@ -8,23 +8,32 @@ export class GeminiService {
     private modelName = "gemini-3.1-flash-lite-preview"; // GA, stable, cost-effective, supports caching
     private fallbackModelName = "gemini-2.5-flash"; // GA fallback
     private cacheName: string | null = null;
-    private maxRetries = 3;
+    private maxRetries = 6;
 
     // Store params for auto-refresh
     private lastSystemPrompt: string = "";
     private lastContent: ContentPart | ContentPart[] | null = null;
+
+    private keyUsageCount = 0; // Đếm số lần xoay vòng liên tiếp để tránh lặp vô hạn
 
     private get ai(): GoogleGenAI {
         return this.ais[this.currentKeyIndex];
     }
 
     private rotateKey(): boolean {
-        if (this.currentKeyIndex + 1 < this.ais.length) {
-            this.currentKeyIndex++;
-            console.warn(`[API Key Rotation] Đã đổi sang phân mảnh API Key thứ ${this.currentKeyIndex + 1} do lỗi bị kiệt quệ Quota.`);
-            return true;
+        if (this.ais.length <= 1) return false;
+        
+        this.currentKeyIndex = (this.currentKeyIndex + 1) % this.ais.length;
+        this.keyUsageCount++;
+        
+        console.warn(`[API Key Rotation] Đã xoay vòng sang API Key #${this.currentKeyIndex + 1}`);
+        
+        // Nếu đã thử xoay vòng qua tất cả các khóa mà vẫn lỗi -> ngưng xoay vòng để tránh lặp vô hạn
+        if (this.keyUsageCount >= this.ais.length * 2) {
+             return false;
         }
-        return false;
+        
+        return true;
     }
 
     constructor(apiKeys: string[], modelName?: string) {
@@ -60,11 +69,13 @@ export class GeminiService {
      * If content is too small for caching (< 4096 tokens), falls back to non-cached mode.
      * @param systemInstruction - The system prompt to cache
      * @param content - The content to cache (inline data or text, or array of them)
+     * @param forceSkipCache - If true, bypasses actual cache creation and only saves context for fallback
      * @returns The cache name for later reference, or empty string if fallback mode
      */
     async createCache(
         systemInstruction: string,
-        content: ContentPart | ContentPart[]
+        content: ContentPart | ContentPart[],
+        forceSkipCache: boolean = false
     ): Promise<string> {
         const contentInput = Array.isArray(content) ? content : [content];
 
@@ -74,7 +85,13 @@ export class GeminiService {
 
         // Save for auto-recovery and non-cached fallback
         this.lastSystemPrompt = systemInstruction;
-        this.lastContent = content;
+        this.lastContent = contentParts;
+
+        if (forceSkipCache) {
+            console.log("forceSkipCache is true, skipping Caches API.");
+            this.cacheName = null;
+            return "";
+        }
 
         for (let attempt = 1; attempt <= this.maxRetries; attempt++) {
             try {
@@ -91,24 +108,31 @@ export class GeminiService {
                 return this.cacheName;
             } catch (error: unknown) {
                 const err = error as { status?: number; message?: string };
-                // Cache too small error - fallback to non-cached mode
-                if (err.status === 400 && err.message?.toLowerCase().includes("too small")) {
-                    console.warn("Content too small for caching (< 4096 tokens). Using non-cached mode.");
+                const errMsg = err.message?.toLowerCase() || "";
+                
+                // Cache too small or model not supported for caching - fallback to non-cached mode
+                if (err.status === 400 || errMsg.includes("too small") || errMsg.includes("minimum") || errMsg.includes("supported")) {
+                    console.warn(`Content cannot be cached. Error: ${err.message}. Using non-cached mode.`);
                     this.cacheName = null;
                     return ""; // Empty string indicates non-cached mode
                 }
                 
                 if (this.isRetryableError(error)) {
                     if (err.status === 429 || (err.message && err.message.toLowerCase().includes("quota"))) {
-                        console.warn(`[Quota Exhausted in Cache Creation] Key index ${this.currentKeyIndex} is dead.`);
                         if (this.rotateKey()) {
                             attempt = 0; // Reset retry counter for new key
+                            // Delay 1s when rotating to avoid hitting rate limit on the new key immediately
+                            await this.delay(1000);
                             continue;
                         } else {
-                            throw new Error("Tất cả API Key dự phòng đều đã kiệt quệ (Lỗi 429/Quota). Bạn cần bổ sung thêm Key mới.");
+                            // Không còn key dự phòng -> Coi đây là lỗi Rate Limit (RPM) và chờ Delay Exponential Backoff
+                            const backoffMs = Math.min(2000 * Math.pow(2, attempt - 1), 20000);
+                            console.warn(`[Rate Limit / Quota] Chờ ${backoffMs}ms để tiếp tục thử lại...`);
+                            await this.delay(backoffMs);
+                            continue;
                         }
                     } else {
-                        const backoffMs = Math.min(1000 * Math.pow(2, attempt - 1), 8000);
+                        const backoffMs = Math.min(2000 * Math.pow(2, attempt - 1), 20000);
                         console.warn(`Attempt ${attempt}/${this.maxRetries} failed (${err.status || 'unknown'}). Retrying in ${backoffMs}ms...`);
                         await this.delay(backoffMs);
                         continue;
@@ -130,14 +154,55 @@ export class GeminiService {
      * @returns The generated text
      */
     async generateWithCache(prompt: string): Promise<string> {
-        // Fallback to non-cached mode if cache not available (e.g., content too small)
+        // Fallback to non-cached mode if cache not available (e.g., content too small or skipped)
         if (!this.cacheName) {
-            console.warn("No cache available. Falling back to non-cached generation.");
-            // Combine system prompt with user prompt for non-cached mode
-            const fullPrompt = this.lastSystemPrompt
-                ? `${this.lastSystemPrompt}\n\n${prompt}`
-                : prompt;
-            return this.generateContent(fullPrompt);
+            console.warn("No cache available. Falling back to non-cached generation with attached content.");
+            let lastError: unknown = null;
+            let currentModel = this.modelName;
+
+            for (let attempt = 1; attempt <= this.maxRetries; attempt++) {
+                try {
+                    const fallbackRequest = {
+                        model: currentModel,
+                        contents: [
+                            ...(this.lastContent ? (Array.isArray(this.lastContent) ? this.lastContent : [this.lastContent]) : []),
+                            { text: prompt }
+                        ],
+                        config: {
+                            systemInstruction: this.lastSystemPrompt || undefined,
+                        }
+                    };
+                    const response = await this.ai.models.generateContent(fallbackRequest);
+                    return response.text ?? "";
+                } catch (error: unknown) {
+                    lastError = error;
+                    if (this.isRetryableError(error)) {
+                        const err = error as { status?: number; message?: string };
+                        if (err.status === 429 || (err.message && err.message.toLowerCase().includes("quota"))) {
+                            if (this.rotateKey()) {
+                                attempt = 0;
+                                await this.delay(1000);
+                                continue;
+                            } else {
+                                const backoffMs = Math.min(2000 * Math.pow(2, attempt - 1), 20000);
+                                await this.delay(backoffMs);
+                                continue;
+                            }
+                        } else {
+                            const backoffMs = Math.min(2000 * Math.pow(2, attempt - 1), 20000);
+                            await this.delay(backoffMs);
+                            
+                            // Try fallback model on last retry
+                            if (attempt === this.maxRetries - 1) {
+                                currentModel = this.fallbackModelName;
+                            }
+                        }
+                    } else {
+                        throw error;
+                    }
+                }
+            }
+            throw lastError;
         }
 
         let lastError: unknown = null;
@@ -169,20 +234,23 @@ export class GeminiService {
                 // Check for retryable errors (503, 429)
                 if (this.isRetryableError(error)) {
                     if (err.status === 429 || (err.message && err.message.toLowerCase().includes("quota"))) {
-                        console.warn(`[Quota Exhausted] Key index ${this.currentKeyIndex} is dead.`);
                         if (this.rotateKey()) {
                             // MUST rebuild cache under the new key!
                             console.warn("Rebuilding cache under the new API key...");
                             if (this.lastSystemPrompt && this.lastContent) {
                                 await this.createCache(this.lastSystemPrompt, this.lastContent);
-                                attempt = 0; // Reset loop counter so the new key gets full 3 retries
+                                attempt = 0; // Reset loop counter so the new key gets full retries
                                 continue;
                             }
                         } else {
-                            throw new Error("Tất cả API Key dự phòng đều đã kiệt quệ (Lỗi 429/Quota). Bạn cần bổ sung thêm Key mới.");
+                            // Không còn key dự phòng -> Trì hoãn và thử lại (có thể do Rate Limit theo Phút)
+                            const backoffMs = Math.min(2000 * Math.pow(2, attempt - 1), 20000);
+                            console.warn(`[Rate Limit] Chờ ${backoffMs}ms... (Attempt ${attempt}/${this.maxRetries})`);
+                            await this.delay(backoffMs);
+                            continue;
                         }
                     } else {
-                        const backoffMs = Math.min(1000 * Math.pow(2, attempt - 1), 8000);
+                        const backoffMs = Math.min(2000 * Math.pow(2, attempt - 1), 20000);
                         console.warn(`Attempt ${attempt}/${this.maxRetries} failed (${err.status || 'unknown'}). Retrying in ${backoffMs}ms...`);
                         await this.delay(backoffMs);
                         continue;
@@ -221,12 +289,16 @@ export class GeminiService {
                     if (err.status === 429 || (err.message && err.message.toLowerCase().includes("quota"))) {
                         if (this.rotateKey()) {
                             attempt = 0; // Reset attempt for new key
+                            await this.delay(1000);
                             continue; // Retry with new key immediately
                         } else {
-                            throw new Error("Tất cả API Key dự phòng đều đã kiệt quệ (Lỗi 429). Bạn cần bổ sung thêm Key mới.");
+                            const backoffMs = Math.min(2000 * Math.pow(2, attempt - 1), 20000);
+                            console.warn(`[Rate Limit] Chờ ${backoffMs}ms để thử lại... (Attempt ${attempt}/${this.maxRetries})`);
+                            await this.delay(backoffMs);
+                            continue;
                         }
                     } else {
-                        const backoffMs = Math.min(1000 * Math.pow(2, attempt - 1), 8000);
+                        const backoffMs = Math.min(2000 * Math.pow(2, attempt - 1), 20000);
                         console.warn(`Attempt ${attempt}/${this.maxRetries} failed (retryable). Retrying in ${backoffMs}ms...`);
                         await this.delay(backoffMs);
 
