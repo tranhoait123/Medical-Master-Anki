@@ -190,10 +190,9 @@ export default function App() {
       }
       
       // Tối ưu số lần gọi API (Gom nhóm các lệnh)
-      // Thử thách: Gemini Flash (đặc biệt Flash-Lite) có thể trả về tối đa 8192 tokens.
-      // Dàn ý chứa các mục nhỏ, mỗi mục sẽ tạo ra vài thẻ Anki.
-      // Tăng BATCH_SIZE lên 8 hoặc 10 để giảm mạnh số lần Request -> Tránh Rate Limit.
-      const BATCH_SIZE = 8;
+      // GIẢM BATCH_SIZE xuống còn 2 để ép Gemini tập trung sâu vào từng mục, 
+      // tránh việc tóm tắt quá mức khi gửi nhiều mục cùng lúc.
+      const BATCH_SIZE = 2; 
       const batchedCmds: string[][] = [];
       for (let i = 0; i < cmds.length; i += BATCH_SIZE) {
         batchedCmds.push(cmds.slice(i, i + BATCH_SIZE));
@@ -223,7 +222,7 @@ export default function App() {
         setProgress(50 + ((i + 1) / batches.length) * 50);
         try {
           const batchCommandsText = batch.map(b => `- ${b}`).join("\n");
-          const prompt = `USER COMMAND:\nVui lòng MỞ RỘNG và TẠO THẺ ANKI cực kỳ chi tiết cho TẤT CẢ các mục tiêu sau đây:\n${batchCommandsText}\n\nCRITICAL INSTRUCTION: Analyze the provided document ONLY. Do NOT use external knowledge. Vét cạn nội dung của tất cả các mục trên. Mọi thẻ phải nằm trong Code Block.`;
+          const prompt = `USER COMMAND (DEEP-LEVEL MODE):\nVui lòng MỞ RỘNG và TẠO THẺ ANKI CỰC KỲ CHI TIẾT cho các mục tiêu sau đây:\n${batchCommandsText}\n\nCRITICAL INSTRUCTION (NGUYÊN TẮC VÉT CẠN):\n1. Phải tạo ít nhất 5-10 thẻ cho mỗi mục tiêu nêu trên nếu tài liệu có dữ kiện.\n2. GIỮ NGUYÊN mọi thông số: liều lượng (mg, mcg), thời gian (phút, giờ, ngày), các phân độ y khoa, các lưu ý nhỏ.\n3. TUYỆT ĐỐI KHÔNG TÓM TẮT. Thà viết dài thành nhiều thẻ còn hơn viết ngắn mất ý.\n4. Chỉ phân tích nội dung trong tài liệu đã nạp. Mọi thẻ phải nằm trong Code Block.`;
           
           const cardOutput = await gemini.generateWithContext(prompt, (m) => addLog(`   └─ ${m}`));
           const cleanBatch = cardOutput.replace(/```/g, "").trim();
