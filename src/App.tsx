@@ -5,13 +5,20 @@ import { PROMPTS } from "./prompts";
 import {
   Upload, FileText, CheckCircle, Loader2, Download,
   Settings, AlertCircle, ChevronDown, ChevronUp, ListFilter,
-  Trash2, RotateCcw, Sparkles, FileType,
-  ClipboardPaste, Target, Key, Bot, Sun, Moon
+  Trash2, RotateCcw, Sparkles, FileType, ShieldCheck,
+  ClipboardPaste, Target, Key, Bot, Sun, Moon, Edit3, Check
 } from "lucide-react";
 import { cn } from "./lib/utils";
 import { motion, AnimatePresence } from "framer-motion";
 
 type AppState = "idle" | "uploading" | "analyzing" | "extracting" | "generating" | "complete" | "error";
+
+interface AnkiCard {
+  id: string;
+  question: string;
+  answer: string;
+  tags: string;
+}
 
 const MODEL_OPTIONS = [
   { value: "gemini-3.1-flash-lite-preview", label: "Gemini 3.1 Flash-Lite", desc: "Nhanh · Tiết kiệm · Khuyên dùng", icon: "⚡", badge: "Khuyên dùng" },
@@ -40,7 +47,7 @@ export default function App() {
   const [status, setStatus] = useState<AppState>("idle");
   const [logs, setLogs] = useState<string[]>([]);
   const [progress, setProgress] = useState(0);
-  const [generatedCards, setGeneratedCards] = useState<string[]>([]);
+  const [generatedCards, setGeneratedCards] = useState<AnkiCard[]>([]);
   const [errorMsg, setErrorMsg] = useState("");
   const [showConfig, setShowConfig] = useState(true);
   const [selectedModel, setSelectedModel] = useState("gemini-3.1-flash-lite-preview");
@@ -49,8 +56,14 @@ export default function App() {
   const [hasGeneratedThisSession, setHasGeneratedThisSession] = useState(false);
   const [showLogs, setShowLogs] = useState(true);
   const [darkMode, setDarkMode] = useState(false);
+  const [extractionMode, setExtractionMode] = useState<"strict" | "hybrid">("strict");
 
   const [dragActive, setDragActive] = useState(false);
+  const [editingIds, setEditingIds] = useState<string[]>([]);
+
+  const toggleEdit = (id: string) => {
+    setEditingIds(prev => prev.includes(id) ? prev.filter(i => i !== id) : [...prev, id]);
+  };
   const geminiRef = useRef<GeminiService | null>(null);
 
   // Dark mode toggle
@@ -70,15 +83,23 @@ export default function App() {
     if (saved) {
       try {
         const parsed = JSON.parse(saved);
-        if (Array.isArray(parsed) && parsed.length > 0) {
+        // Kiểm tra xem dữ liệu có phải là mảng các Object hợp lệ không
+        if (Array.isArray(parsed) && parsed.length > 0 && typeof parsed[0] === 'object' && 'id' in parsed[0]) {
           setGeneratedCards(parsed);
           setHasGeneratedThisSession(true);
           setStatus("complete");
+        } else {
+          // Nếu dữ liệu cũ (dạng chuỗi), xóa nó đi để tránh crash
+          localStorage.removeItem("anki-cards-history");
         }
       } catch (e) {
         console.error("Failed to load history", e);
         localStorage.removeItem("anki-cards-history");
       }
+    }
+    const savedMode = localStorage.getItem("anki-extraction-mode");
+    if (savedMode === "strict" || savedMode === "hybrid") {
+      setExtractionMode(savedMode);
     }
   }, []);
 
@@ -87,6 +108,10 @@ export default function App() {
       localStorage.setItem("anki-cards-history", JSON.stringify(generatedCards));
     }
   }, [generatedCards, hasGeneratedThisSession]);
+
+  useEffect(() => {
+    localStorage.setItem("anki-extraction-mode", extractionMode);
+  }, [extractionMode]);
 
   const handleClearHistory = useCallback(() => {
     setGeneratedCards([]);
@@ -222,47 +247,47 @@ export default function App() {
         setProgress(50 + ((i + 1) / batches.length) * 50);
         try {
           const batchCommandsText = batch.map(b => `- ${b}`).join("\n");
-          const prompt = `USER COMMAND (DEEP-LEVEL MODE):\nVui lòng MỞ RỘNG và TẠO THẺ ANKI CỰC KỲ CHI TIẾT cho các mục tiêu sau đây:\n${batchCommandsText}\n\nCRITICAL INSTRUCTION (NGUYÊN TẮC VÉT CẠN):\n1. Phải tạo ít nhất 5-10 thẻ cho mỗi mục tiêu nêu trên nếu tài liệu có dữ kiện.\n2. GIỮ NGUYÊN mọi thông số: liều lượng (mg, mcg), thời gian (phút, giờ, ngày), các phân độ y khoa, các lưu ý nhỏ.\n3. TUYỆT ĐỐI KHÔNG TÓM TẮT. Thà viết dài thành nhiều thẻ còn hơn viết ngắn mất ý.\n4. Sử dụng chuỗi [ANKI-SEP] để ngăn cách 3 thành phần: Câu hỏi[ANKI-SEP]Câu trả lời[ANKI-SEP]Tags.\n5. Chỉ phân tích nội dung trong tài liệu đã nạp. Mọi thẻ phải nằm trong Code Block.`;
+          
+          const strictnessInstruction = extractionMode === "strict" 
+            ? "DỮ LIỆU PHẢI 100% TỪ FILE. Nếu file không ghi liều lượng hay cơ chế, hãy để trống hoặc bỏ qua. Tuyệt đối không dùng kiến thức AI tự có để chế thêm."
+            : "Ưu tiên tài liệu gốc. Tuy nhiên, nếu tài liệu bị khuyết thiếu các thông số lâm sàng quan trọng (như liều lượng tiêu chuẩn, định nghĩa cốt lõi), AI có thể bổ trợ từ kiến thức y khoa tin cậy để bộ thẻ hoàn thiện và có giá trị học tập cao hơn.";
+
+          const prompt = `USER COMMAND (DEEP-LEVEL MODE):\nVui lòng MỞ RỘNG và TẠO THẺ ANKI CỰC KỲ CHI TIẾT cho các mục tiêu sau đây:\n${batchCommandsText}\n\nCRITICAL INSTRUCTION (NGUYÊN TẮC VÉT CẠN):\n1. Phải tạo ít nhất 5-10 thẻ cho mỗi mục tiêu nêu trên nếu tài liệu có dữ kiện.\n2. GIỮ NGUYÊN mọi thông số: liều lượng (mg, mcg), thời gian (phút, giờ, ngày), các phân độ y khoa, các lưu ý nhỏ.\n3. TUYỆT ĐỐI KHÔNG TÓM TẮT. Thà viết dài thành nhiều thẻ còn hơn viết ngắn mất ý.\n4. Sử dụng chuỗi [ANKI-SEP] để ngăn cách 3 thành phần: Câu hỏi[ANKI-SEP]Câu trả lời[ANKI-SEP]Tags.\n5. CHẾ ĐỘ TRÍCH XUẤT: ${strictnessInstruction}\n6. Chỉ phân tích nội dung trong tài liệu đã nạp. Mọi thẻ phải nằm trong Code Block.`;
           
           const cardOutput = await gemini.generateWithContext(prompt, (m) => addLog(`   └─ ${m}`));
           
           // ANKI LINE HEALING ENGINE (Siết chặt định dạng 100%)
-          // Chúng ta sẽ parse từng dòng để đảm bảo không có lỗi chênh lệch cột khi import vào Anki.
-          const healedBatch = cardOutput
+          const healedBatch: AnkiCard[] = cardOutput
             .replace(/```/g, "")
             .split("\n")
             .map(line => {
               const trimmedLine = line.trim();
               if (!trimmedLine) return null;
               
-              // Hỗ trợ cả [ANKI-SEP] mới và [TAB] cũ làm fallback
               const separator = trimmedLine.includes("[ANKI-SEP]") ? "[ANKI-SEP]" : "[TAB]";
               let parts = trimmedLine.split(separator).map(p => p.trim());
               
-              // Bỏ qua các dòng không có dấu phân cách (rác)
               if (parts.length < 2) return null;
               
-              // HEALING: Đảm bảo luôn có 3 cột (Question, Answer, Tags)
               if (parts.length === 2) {
-                // Nếu AI quên Tags, thêm Tags mặc định từ tài liệu
                 parts.push("MedicalMaster::AutoGenerated");
               } else if (parts.length > 3) {
-                // Nếu AI để dấu phân cách lung tung, gộp phần thừa vào Answer
                 const question = parts[0];
                 const tags = parts[parts.length - 1];
                 const content = parts.slice(1, parts.length - 1).join(" - ");
                 parts = [question, content, tags];
               }
               
-              // Làm sạch nội dung: Xóa mọi ký tự Tab thực tế vô tình lọt vào content
-              // để tránh làm hỏng cấu trúc file .txt
-              return parts.map(p => p.replace(/\t/g, " ")).join("\t");
+              return {
+                id: Math.random().toString(36).substr(2, 9),
+                question: parts[0].replace(/\t/g, " "),
+                answer: parts[1].replace(/\t/g, " "),
+                tags: (parts[2] || "MedicalMaster").replace(/\t/g, " ")
+              };
             })
-            .filter(Boolean)
-            .join("\n");
+            .filter((c): c is AnkiCard => c !== null);
           
-          // Cập nhật thẻ ngay lập tức để người dùng thấy tiến độ
-          setGeneratedCards(prev => [...prev, healedBatch]);
+          setGeneratedCards(prev => [...prev, ...healedBatch]);
         } catch (e: unknown) {
           const errMsg = e instanceof Error ? e.message : String(e);
           addLog(`⚠️ Cụm ${i + 1} bị lỗi: ${errMsg}. Bỏ qua...`);
@@ -279,46 +304,52 @@ export default function App() {
     }
   };
 
+  const updateCard = (id: string, field: keyof AnkiCard, value: string) => {
+    setGeneratedCards(prev => prev.map(c => c.id === id ? { ...c, [field]: value } : c));
+  };
+
+  const deleteCard = (id: string) => {
+    setGeneratedCards(prev => prev.filter(c => c.id !== id));
+  };
+
   const handleDownload = () => {
-    const allText = generatedCards.join("\n");
-    const cleanLines = allText.split("\n")
-      .map(l => l.trim()).filter(l => l.length > 0)
-      .filter(l => !l.startsWith("```"))
-      .filter(l => !l.match(/^(html|xml|json|markdown|txt|text)$/i))
-      .filter(l => l.includes("\t"));
-
-    const processedLines = cleanLines.map(line => {
-      const parts = line.split("\t");
-      if (parts.length >= 3) {
-        return `${parts[0]}\t${parts[1]}\t${parts[2].trim().replace(/\s+/g, "_")}`;
-      }
-      return line;
-    });
-
-    if (processedLines.length === 0) {
-      alert("Không tìm thấy thẻ hợp lệ! Kiểm tra lại kết quả."); return;
+    if (generatedCards.length === 0) {
+      alert("Không tìm thấy thẻ hợp lệ! Kiểm tra lại kết quả.");
+      return;
     }
 
-    const blob = new Blob([processedLines.join("\n")], { type: "text/plain" });
+    const processedText = generatedCards
+      .map(card => {
+        const cleanTags = card.tags.trim().replace(/\s+/g, "_");
+        return `${card.question}\t${card.answer}\t${cleanTags}`;
+      })
+      .join("\n");
+
+    const blob = new Blob([processedText], { type: "text/plain" });
     const url = URL.createObjectURL(blob);
     const a = document.createElement("a");
     a.href = url;
     a.download = `anki_${file?.name || topicScope.trim().replace(/\s+/g, '_') || "cards"}.txt`;
-    document.body.appendChild(a); a.click(); document.body.removeChild(a);
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
   };
 
   const handleDrag = (e: React.DragEvent) => {
-    e.preventDefault(); e.stopPropagation();
+    e.preventDefault();
+    e.stopPropagation();
     if (e.type === "dragenter" || e.type === "dragover") setDragActive(true);
     else if (e.type === "dragleave") setDragActive(false);
   };
 
   const handleDrop = (e: React.DragEvent) => {
-    e.preventDefault(); e.stopPropagation(); setDragActive(false);
+    e.preventDefault();
+    e.stopPropagation();
+    setDragActive(false);
     if (e.dataTransfer.files?.[0]) setFile(e.dataTransfer.files[0]);
   };
 
-  const totalCards = generatedCards.join("\n").split("\n").filter(l => l.includes("\t")).length;
+  const totalCards = generatedCards.length;
   const isProcessing = status !== "idle" && status !== "complete" && status !== "error";
 
   return (
@@ -475,6 +506,47 @@ export default function App() {
                           </div>
                         </button>
                       ))}
+                    </div>
+                  </div>
+
+                  {/* Extraction Mode Selection */}
+                  <div className="app-card p-4 space-y-3">
+                    <label className="text-sm font-semibold flex items-center gap-2">
+                      <Target className="w-3.5 h-3.5 text-rose-500" />
+                      Chế độ trích xuất kiến thức
+                    </label>
+                    <div className="grid grid-cols-2 gap-2">
+                      <button
+                        onClick={() => setExtractionMode("strict")}
+                        className={cn(
+                          "p-3 rounded-lg text-left transition-all border flex flex-col gap-1",
+                          extractionMode === "strict"
+                            ? "bg-rose-500/5 border-rose-500/30 ring-1 ring-rose-500/20"
+                            : "border-transparent hover:bg-muted/50"
+                        )}
+                      >
+                        <div className="flex items-center gap-2 text-sm font-semibold text-rose-600 dark:text-rose-400">
+                          <ShieldCheck className="w-3.5 h-3.5" />
+                          Nghiêm ngặt
+                        </div>
+                        <p className="text-[10px] text-muted-foreground leading-tight">100% tài liệu gốc. Không tự ý bổ sung.</p>
+                      </button>
+
+                      <button
+                        onClick={() => setExtractionMode("hybrid")}
+                        className={cn(
+                          "p-3 rounded-lg text-left transition-all border flex flex-col gap-1",
+                          extractionMode === "hybrid"
+                            ? "bg-blue-500/5 border-blue-500/30 ring-1 ring-blue-500/20"
+                            : "border-transparent hover:bg-muted/50"
+                        )}
+                      >
+                        <div className="flex items-center gap-2 text-sm font-semibold text-blue-600 dark:text-blue-400">
+                          <Sparkles className="w-3.5 h-3.5" />
+                          Bổ trợ AI
+                        </div>
+                        <p className="text-[10px] text-muted-foreground leading-tight">Ưu tiên tài liệu. AI tự điền khuyết thiếu.</p>
+                      </button>
                     </div>
                   </div>
                 </div>
@@ -698,63 +770,229 @@ export default function App() {
         </AnimatePresence>
 
         {/* ===== RESULTS ===== */}
-        <AnimatePresence>
-          {status === "complete" && hasGeneratedThisSession && generatedCards.length > 0 && (
+        {/* ===== RESULTS & REVIEW ===== */}
+        {/* ===== RESULTS & REVIEW ===== */}
+        <AnimatePresence mode="wait">
+          {(status === "complete" || status === "generating") && generatedCards.length > 0 && (
             <motion.div
-              initial={{ opacity: 0, y: 20, scale: 0.98 }}
-              animate={{ opacity: 1, y: 0, scale: 1 }}
-              exit={{ opacity: 0, scale: 0.95 }}
-              transition={{ type: "spring", damping: 20 }}
-              className="pro-gradient-border app-card overflow-hidden"
+              initial={{ opacity: 0, y: 20 }}
+              animate={{ opacity: 1, y: 0 }}
+              exit={{ opacity: 0, y: -20 }}
+              className="space-y-6 pb-20"
             >
-              <div className="p-6 space-y-5">
-                {/* Stats header */}
-                <div className="flex flex-col sm:flex-row items-center justify-between gap-4">
-                  <div className="flex items-center gap-3">
-                    <div className="w-10 h-10 rounded-xl bg-emerald-500/10 flex items-center justify-center">
-                      <CheckCircle className="w-5 h-5 text-emerald-500" />
-                    </div>
-                    <div>
-                      <h3 className="text-lg font-bold text-emerald-600 dark:text-emerald-400">Tạo thẻ thành công!</h3>
-                      <p className="text-xs text-muted-foreground">Sẵn sàng import vào Anki Desktop</p>
-                    </div>
+              {/* Review Header Stats */}
+              <div className="pro-gradient-border app-card p-6 flex flex-col sm:flex-row items-center justify-between gap-6">
+                <div className="flex items-center gap-4">
+                  <div className={cn(
+                    "w-12 h-12 rounded-2xl flex items-center justify-center transition-colors",
+                    status === "complete" ? "bg-emerald-500/10" : "bg-primary/10"
+                  )}>
+                    {status === "complete" ? (
+                      <CheckCircle className="w-6 h-6 text-emerald-500" />
+                    ) : (
+                      <Loader2 className="w-6 h-6 text-primary animate-spin" />
+                    )}
                   </div>
+                  <div>
+                    <h3 className="text-xl font-bold">
+                      {status === "complete" ? "Hoàn tất trích xuất!" : "Đang tạo thẻ..."}
+                    </h3>
+                    <p className="text-sm text-muted-foreground italic">
+                      {status === "complete" 
+                        ? "Kiểm tra và sửa nội dung trước khi tải về Anki." 
+                        : "Thẻ đang được tạo và thêm vào danh sách bên dưới."}
+                    </p>
+                  </div>
+                </div>
 
-                  <div className="flex items-center gap-3">
-                    <div className="flex items-center gap-4 bg-muted/30 px-4 py-2.5 rounded-xl border border-border/50">
-                      <div className="text-center">
-                        <div className="text-[10px] text-muted-foreground uppercase font-bold tracking-wider">Tổng thẻ</div>
-                        <div className="text-xl font-black font-mono">{totalCards}</div>
-                      </div>
-                      <div className="w-px h-8 bg-border/50" />
-                      <div className="text-center">
-                        <div className="text-[10px] text-muted-foreground uppercase font-bold tracking-wider">Phần</div>
-                        <div className="text-xl font-black font-mono">{generatedCards.length}</div>
-                      </div>
-                    </div>
-                    <button onClick={handleClearHistory} className="p-2.5 rounded-lg hover:bg-destructive/10 text-muted-foreground hover:text-destructive transition-all" title="Xóa kết quả">
-                      <Trash2 className="w-4 h-4" />
+                <div className="flex items-center gap-4">
+                  <div className="bg-muted/30 px-6 py-3 rounded-2xl border border-border/50 text-center min-w-[120px]">
+                    <div className="text-[10px] text-muted-foreground uppercase font-bold tracking-widest mb-1">Tổng thẻ</div>
+                    <div className="text-2xl font-black font-mono text-primary">{totalCards}</div>
+                  </div>
+                  <div className="flex gap-2">
+                    <button 
+                      onClick={handleDownload} 
+                      disabled={status === "generating"}
+                      className={cn(
+                        "btn-primary px-6 py-3.5 flex items-center gap-2 shadow-xl shadow-primary/20",
+                        status === "generating" && "opacity-50 cursor-not-allowed grayscale"
+                      )}
+                    >
+                      {status === "generating" ? (
+                        <Loader2 className="w-5 h-5 animate-spin" />
+                      ) : (
+                        <Download className="w-5 h-5" />
+                      )}
+                      Tải file .txt
+                    </button>
+                    <button 
+                      onClick={handleClearHistory} 
+                      disabled={status === "generating"}
+                      className={cn(
+                        "p-3.5 rounded-2xl bg-muted/50 hover:bg-destructive/10 text-muted-foreground hover:text-destructive transition-all border border-border/50",
+                        status === "generating" && "opacity-50 cursor-not-allowed"
+                      )}
+                      title="Xóa kết quả"
+                    >
+                      <Trash2 className="w-5 h-5" />
                     </button>
                   </div>
                 </div>
+              </div>
 
-                {/* Download actions */}
-                <div className="flex flex-col sm:flex-row items-center justify-center gap-3 pt-4 border-t border-border/50">
-                  <button
-                    onClick={handleDownload}
-                    className="w-full sm:w-auto pro-gradient text-white px-8 py-3 rounded-xl font-black uppercase tracking-wider flex items-center justify-center gap-2.5 transition-all pro-shadow hover:opacity-90 active:scale-[0.97]"
-                  >
-                    <Download className="w-5 h-5" />
-                    Tải File .txt (Import Anki)
-                  </button>
-                  <button
-                    onClick={() => handleAnalyze()}
-                    className="w-full sm:w-auto px-6 py-3 rounded-xl font-bold flex items-center justify-center gap-2.5 border border-border hover:bg-muted/50 transition-all"
-                  >
+              {/* Card Grid */}
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                {generatedCards.map((card) => {
+                  const isEditing = editingIds.includes(card.id);
+                  return (
+                    <motion.div
+                      key={card.id}
+                      layout
+                      initial={{ opacity: 0, scale: 0.9 }}
+                      animate={{ opacity: 1, scale: 1 }}
+                      className="app-card group relative p-5 border border-border/40 hover:border-primary/30 transition-all hover:shadow-lg hover:shadow-primary/5 h-fit min-h-[300px] flex flex-col"
+                    >
+                      <div className="flex justify-between items-start mb-3">
+                        <div className="flex items-center gap-2">
+                           <span className={cn("w-2 h-2 rounded-full transform transition-all duration-500", isEditing ? "bg-primary animate-ping" : "bg-primary/40 animate-pulse")} />
+                           <span className="text-[10px] text-muted-foreground uppercase font-bold tracking-widest">
+                              # {card?.tags?.split('::').pop() || "Thẻ"}
+                           </span>
+                        </div>
+                        <div className="flex gap-2 opacity-0 group-hover:opacity-100 transition-all">
+                          <button 
+                            onClick={() => toggleEdit(card.id)}
+                            className={cn(
+                              "p-2 rounded-lg transition-all",
+                              isEditing ? "bg-emerald-500/10 text-emerald-500" : "bg-muted/50 hover:bg-primary/10 text-muted-foreground hover:text-primary"
+                            )}
+                            title={isEditing ? "Lưu" : "Sửa thẻ"}
+                          >
+                            {isEditing ? <Check className="w-3.5 h-3.5" /> : <Edit3 className="w-3.5 h-3.5" />}
+                          </button>
+                          <button 
+                            onClick={() => deleteCard(card.id)}
+                            className="p-2 rounded-lg bg-muted/50 hover:bg-destructive/10 text-muted-foreground hover:text-destructive transition-all"
+                            title="Xóa thẻ này"
+                          >
+                            <Trash2 className="w-3.5 h-3.5" />
+                          </button>
+                        </div>
+                      </div>
+
+                      <div className="flex-1 overflow-hidden flex flex-col pt-2 pb-4">
+                        <AnimatePresence mode="wait">
+                          {isEditing ? (
+                            <motion.div 
+                              key="editor"
+                              initial={{ opacity: 0, x: 10 }}
+                              animate={{ opacity: 1, x: 0 }}
+                              exit={{ opacity: 0, x: -10 }}
+                              className="space-y-4"
+                            >
+                              {/* Editor View */}
+                              <div className="space-y-1.5 rounded-lg transition-all">
+                                <label className="text-[9px] uppercase font-bold text-muted-foreground/60 tracking-widest flex items-center gap-1.5 px-1">
+                                  <FileType className="w-2.5 h-2.5" /> Câu hỏi (Front)
+                                </label>
+                                <textarea
+                                  value={card.question}
+                                  onChange={(e) => updateCard(card.id, 'question', e.target.value)}
+                                  className="w-full bg-muted/20 hover:bg-muted/30 rounded-lg text-sm font-semibold border-none focus:ring-0 p-3 resize-none custom-scrollbar min-h-[60px] transition-colors"
+                                  rows={2}
+                                  placeholder="Nhập câu hỏi..."
+                                />
+                              </div>
+
+                              <div className="space-y-1.5 rounded-lg transition-all">
+                                <label className="text-[9px] uppercase font-bold text-emerald-500/60 tracking-widest flex items-center gap-1.5 px-1">
+                                  <Target className="w-2.5 h-2.5 text-emerald-500" /> Trả lời (Back)
+                                </label>
+                                <textarea
+                                  value={card.answer}
+                                  onChange={(e) => updateCard(card.id, 'answer', e.target.value)}
+                                  className="w-full bg-emerald-500/5 hover:bg-emerald-500/10 rounded-lg text-xs text-muted-foreground border-none focus:ring-0 p-3 resize-none custom-scrollbar min-h-[100px] transition-colors"
+                                  rows={4}
+                                  placeholder="Nhập câu trả lời..."
+                                />
+                              </div>
+                              
+                              <div className="pt-1">
+                                <div className="bg-muted/40 rounded-lg px-3 py-2 flex items-center gap-3 border border-transparent focus-within:border-primary/20 transition-all">
+                                  <ListFilter className="w-3 h-3 text-muted-foreground/50" />
+                                  <input 
+                                    value={card.tags}
+                                    onChange={(e) => updateCard(card.id, 'tags', e.target.value)}
+                                    className="w-full bg-transparent border-none focus:ring-0 text-[10px] font-mono p-0 h-4"
+                                    placeholder="Tags (cách nhau bởi ::)"
+                                  />
+                                </div>
+                              </div>
+                            </motion.div>
+                          ) : (
+                            <motion.div 
+                              key="preview"
+                              initial={{ opacity: 0, x: -10 }}
+                              animate={{ opacity: 1, x: 0 }}
+                              exit={{ opacity: 0, x: 10 }}
+                              className="h-full flex flex-col justify-center items-center text-center space-y-6 px-4 py-6"
+                            >
+                              {/* Anki Preview View */}
+                              <div className="w-full">
+                                <h4 
+                                  className="text-base font-bold text-foreground leading-relaxed whitespace-pre-wrap"
+                                  dangerouslySetInnerHTML={{ __html: card.question }}
+                                />
+                              </div>
+
+                              <div className="w-16 h-px bg-border/40" />
+
+                              <div className="w-full">
+                                <p 
+                                  className="text-sm text-balance text-muted-foreground/90 whitespace-pre-wrap leading-relaxed"
+                                  dangerouslySetInnerHTML={{ __html: card.answer }}
+                                />
+                              </div>
+
+                              <div className="mt-auto pt-6 flex flex-wrap justify-center gap-1.5">
+                                {card.tags.split('::').map((tag, idx) => (
+                                  <span key={idx} className="text-[9px] bg-muted/60 text-muted-foreground/80 px-2 py-0.5 rounded-md font-mono border border-border/30">
+                                    {tag}
+                                  </span>
+                                ))}
+                              </div>
+                            </motion.div>
+                          )}
+                        </AnimatePresence>
+                      </div>
+
+                      {/* Footer Hint */}
+                      {!isEditing && (
+                        <div className="mt-auto border-t border-border/20 pt-3 flex justify-center">
+                           <button 
+                             onClick={() => toggleEdit(card.id)}
+                             className="text-[10px] text-muted-foreground/40 hover:text-primary transition-colors flex items-center gap-1.5 uppercase font-bold tracking-widest group"
+                           >
+                              <Edit3 className="w-2.5 h-2.5 opacity-40 group-hover:opacity-100" />
+                              Nhấn để sửa thẻ này
+                           </button>
+                        </div>
+                      )}
+                    </motion.div>
+                  );
+                })}
+              </div>
+
+              {/* Action area footer */}
+              <div className="flex justify-center p-8">
+                 <button 
+                   onClick={() => handleAnalyze()}
+                   className="flex items-center gap-2 text-sm font-semibold text-muted-foreground hover:text-primary transition-all p-4 rounded-xl hover:bg-primary/5 border border-dashed border-border hover:border-primary/30"
+                 >
                     <RotateCcw className="w-4 h-4" />
-                    Tạo lại
-                  </button>
-                </div>
+                    Bắt đầu lại từ đầu
+                 </button>
               </div>
             </motion.div>
           )}
