@@ -1,5 +1,5 @@
 import { useState, useRef, useEffect, useCallback } from "react";
-import { GeminiService } from "./lib/gemini";
+import { GeminiService, type ContentPart } from "./lib/gemini";
 import { fileToGenerativePart } from "./lib/file-processing";
 import { PROMPTS } from "./prompts";
 import {
@@ -108,7 +108,6 @@ export default function App() {
       return;
     }
 
-    let contentToProcess = "";
     let contentName = "Tài liệu";
     const userFocus = topicScope.trim()
       ? `CHỦ ĐỀ CẦN TẬP TRUNG: "${topicScope}". (Chỉ trích xuất nội dung liên quan đến chủ đề này).`
@@ -119,7 +118,6 @@ export default function App() {
       contentName = file.name;
     } else {
       if (!textInput.trim()) { setErrorMsg("Vui lòng dán nội dung văn bản."); return; }
-      contentToProcess = textInput;
       contentName = "Văn bản dán";
     }
 
@@ -130,57 +128,66 @@ export default function App() {
       addLog("🚀 Bắt đầu phân tích...");
       if (topicScope.trim()) addLog(`🎯 Phạm vi: ${topicScope}`);
 
-      let filePart: { inlineData: { data: string; mimeType: string } } | null = null;
+      const keys = apiKey.split(',').map(k => k.trim()).filter(Boolean);
+      if (keys.length === 0) { setErrorMsg("Vui lòng nhập ít nhất 1 API Key hợp lệ."); return; }
+      const gemini = new GeminiService(keys, selectedModel);
+      geminiRef.current = gemini;
+
+      let filePart: ContentPart | null = null;
       if (inputMode === "file" && file) {
         addLog(`📄 Đang xử lý file: ${file.name}...`);
-        filePart = await fileToGenerativePart(file);
-        addLog("✅ File đã chuyển đổi thành công.");
+        
+        if (file.size > 2 * 1024 * 1024) { // over 2MB
+          addLog(`☁️ File lớn (>2MB): Đang tải lên hệ thống Google File API. Vui lòng đợi...`);
+          try {
+            filePart = await gemini.uploadFile(file, (msg) => addLog(msg));
+            addLog("✅ Tải lên và xử lý file bởi Google thành công!");
+          } catch (e: unknown) {
+            const err = e instanceof Error ? e.message : String(e);
+            addLog(`⚠️ Upload API thất bại (${err}). Đang dùng Fallback Base64 nội bộ...`);
+            filePart = await fileToGenerativePart(file);
+          }
+        } else {
+          filePart = await fileToGenerativePart(file);
+          addLog("✅ File nhỏ: Đã chuyển đổi (Base64) thành công.");
+        }
       } else {
         addLog("✅ Nội dung văn bản sẵn sàng.");
       }
 
-      const keys = apiKey.split(',').map(k => k.trim()).filter(Boolean);
-      if (keys.length === 0) { setErrorMsg("Vui lòng nhập ít nhất 1 API Key hợp lệ."); return; }
-      const gemini = new GeminiService(keys, selectedModel);
-
       setStatus("analyzing"); setOutline(""); setShowOutline(false);
       addLog("🔵 Đang phân tích cấu trúc tài liệu...");
 
-      let shouldCache = true;
-      const cacheContent = inputMode === "file" && filePart ? filePart : contentToProcess;
-
-      if (inputMode === "file" && file && file.size < 500 * 1024) { // < 500KB -> skip cache
-          shouldCache = false;
-      }
-      if (inputMode === "text" && textInput.length < 150000) { // ~ 50,000 words -> skip cache
-          shouldCache = false;
-      }
-
-      if (shouldCache) {
-          addLog("📦 Đang tạo Context Cache (File lớn)...");
-          await gemini.createCache(PROMPTS.MedicalTutor, cacheContent);
-          addLog("✅ Cache tạo thành công!");
-      } else {
-          addLog("⚡ Tệp nhỏ: Đưa thẳng vào Context (Bypass Cache Của Google để tránh lỗi).");
-          await gemini.createCache(PROMPTS.MedicalTutor, cacheContent, true);
-      }
-      
-      geminiRef.current = gemini;
-      setProgress(15);
+      const finalContent = inputMode === "file" && filePart ? filePart : textInput;
+      gemini.setContext(PROMPTS.MedicalTutor, finalContent);
+      setProgress(10);
 
       const phase1Command = `USER COMMAND: Giai đoạn 1 bài ${contentName}. ${userFocus}`;
       addLog("⏳ Gửi yêu cầu tới Gemini (Giai đoạn 1 — Lập dàn ý)...");
-      const phase1Output = await gemini.generateWithCache(phase1Command);
-      setOutline(phase1Output); setProgress(35);
+      const phase1Output = await gemini.generateWithContext(phase1Command, (m) => addLog(`   └─ ${m}`));
+      setOutline(phase1Output); setProgress(30);
       addLog("✅ Dàn ý đã được tạo xong.");
 
       setStatus("extracting");
       addLog("🟠 Đang trích xuất các lệnh tạo thẻ...");
       const extractionPrompt = `${PROMPTS.DataExtractor}\n\n=== INPUT OUTLINE ===\n${phase1Output}`;
       const phase2Output = await gemini.generateContent(extractionPrompt);
-      const cmds = phase2Output.split("\n").filter(line => line.trim().startsWith("Giai đoạn 2"));
+      
+      // Sử dụng Regex để bắt đúng các dòng "Giai đoạn 2" bất kể Markdown hay text bọc ngoài
+      const phase2Match = phase2Output.match(/(Giai đoạn 2 phần .*?:)/gi);
+      const cmds = phase2Match ? phase2Match.map(m => m.trim()) : [];
 
-      if (cmds.length === 0) throw new Error("Không thể nhận diện lệnh xử lý. Kiểm tra lại tài liệu đầu vào.");
+      if (cmds.length === 0) {
+        console.warn("Raw phase2Output:", phase2Output);
+        addLog("⚠️ Cảnh báo: Gemini không trả về đúng định dạng lệnh. Thử trích xuất thủ công...");
+        // Fallback sang cách cũ nếu regex hụt
+        const fallbackCmds = phase2Output.split("\n")
+          .map(line => line.replace(/^[-*0-9.)]+\s*/, "").replace(/\*\*/g, "").trim())
+          .filter(line => line.toLowerCase().includes("giai đoạn 2") && line.length > 10);
+        
+        if (fallbackCmds.length === 0) throw new Error("Không thể nhận diện lệnh xử lý. Kiểm tra lại tài liệu đầu vào.");
+        cmds.push(...fallbackCmds);
+      }
       
       // Tối ưu số lần gọi API (Gom nhóm các lệnh)
       // Thử thách: Gemini Flash (đặc biệt Flash-Lite) có thể trả về tối đa 8192 tokens.
@@ -208,32 +215,34 @@ export default function App() {
       setStatus("generating");
       addLog("🟣 Bắt đầu tạo thẻ Anki...");
       const gemini = geminiRef.current;
-      if (!gemini || !gemini.hasCache()) throw new Error("Cache đã hết hạn. Vui lòng phân tích lại.");
+      if (!gemini) throw new Error("Service chưa được khởi tạo. Vui lòng thử lại.");
 
-      const allCards: string[] = [];
       for (let i = 0; i < batches.length; i++) {
         const batch = batches[i];
         addLog(`⚙️ Xử lý cụm ${i + 1}/${batches.length} (gồm ${batch.length} phần nhỏ)...`);
         setProgress(50 + ((i + 1) / batches.length) * 50);
         try {
           const batchCommandsText = batch.map(b => `- ${b}`).join("\n");
-          const prompt = `USER COMMAND:\nVui lòng MỞ RỘNG và TẠO THẺ ANKI cực kỳ chi tiết cho TẤT CẢ các mục tiêu sau đây:\n${batchCommandsText}\n\nCRITICAL INSTRUCTION: Analyze the cached document ONLY. Do NOT use external knowledge. Vét cạn nội dung của tất cả các mục trên. Mọi thẻ phải nằm trong Code Block.`;
+          const prompt = `USER COMMAND:\nVui lòng MỞ RỘNG và TẠO THẺ ANKI cực kỳ chi tiết cho TẤT CẢ các mục tiêu sau đây:\n${batchCommandsText}\n\nCRITICAL INSTRUCTION: Analyze the provided document ONLY. Do NOT use external knowledge. Vét cạn nội dung của tất cả các mục trên. Mọi thẻ phải nằm trong Code Block.`;
           
-          const cardOutput = await gemini.generateWithCache(prompt);
-          allCards.push(cardOutput.replace(/```/g, "").trim());
-        } catch {
-          addLog(`⚠️ Cụm ${i + 1} bị lỗi hoặc bị chặn bởi AI Safety Filter. Bỏ qua...`);
+          const cardOutput = await gemini.generateWithContext(prompt, (m) => addLog(`   └─ ${m}`));
+          const cleanBatch = cardOutput.replace(/```/g, "").trim();
+          
+          // Cập nhật thẻ ngay lập tức để người dùng thấy tiến độ
+          setGeneratedCards(prev => [...prev, cleanBatch]);
+        } catch (e: unknown) {
+          const errMsg = e instanceof Error ? e.message : String(e);
+          addLog(`⚠️ Cụm ${i + 1} bị lỗi: ${errMsg}. Bỏ qua...`);
         }
       }
 
       addLog("✅ Hoàn tất tất cả các phần!");
-      setGeneratedCards(allCards); setStatus("complete");
+      setStatus("complete");
     } catch (err: unknown) {
       const msg = err instanceof Error ? err.message : String(err);
       setErrorMsg(msg); setStatus("error"); addLog(`❌ Lỗi: ${msg}`);
     } finally {
-      const gemini = geminiRef.current;
-      if (gemini?.hasCache()) { addLog("🧹 Dọn dẹp cache..."); await gemini.deleteCache(); }
+      // Cleanup logic if needed (File API handles its own TTL)
     }
   };
 
