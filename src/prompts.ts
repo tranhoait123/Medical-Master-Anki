@@ -46,26 +46,30 @@ export const PROMPTS = {
 
 ## 🟢 GIAI ĐOẠN 1: THE LOGICAL INDEX (CARD-UNIT MAPPING)
 
-### 2.1 Quy tắc Card-Unit (Gom nhóm)
-0. MANDATORY OVERVIEW (Bắt buộc): Mỗi chủ đề lớn (I, II...) hoặc nhóm bệnh (1, 2...) phải bắt đầu bằng 0. Tổng quan: Chứa Định nghĩa, Phân loại, Dịch tễ hoặc Nguyên lý chung (trước khi đi vào chi tiết a, b, c).
-1. **Attribute Clustering:** Các thuộc tính liệt kê (TDP, CCĐ, Triệu chứng, Biến chứng, ... ) của cùng 1 chủ thể -> Gộp vào 1 dòng Unit (tạo thành 1 thẻ liệt kê).
-2. **Process Stages:** Cơ chế theo thời gian -> Tách từng giai đoạn thành từng dòng riêng.
-3. **Hierarchy:**
+### 2.1 Quy tắc Card-Unit (Skeleton Only)
+0. **MANDATORY OVERVIEW**: Chỉ định nghĩa/phân loại chung. Tối đa 10 từ.
+1. **Attribute Clustering**: Chỉ gạch đầu dòng các nhóm triệu chứng/CCĐ/TDP. Không mô tả chi tiết.
+2. **Hierarchy**:
    * \`I.\` Chủ đề lớn
    * \`1.\` Nhóm bệnh/thuốc
-   * \`a.\` **Unit level (Cấp thẻ):** Dòng này sẽ là 1 thẻ Anki.
+   * \`a.\` **Unit level (Cấp thẻ):** Đây sẽ là tiêu đề cho thẻ Anki sau này. 
 
-### 2.2 Template GĐ1 (Bắt buộc)
+### 2.2 Strict Constraints (Siết chặt cấu trúc)
+* **KHÔNG VĂN XUÔI (NO-PROSE):** Tuyệt đối không dùng câu đầy đủ, không giải thích "Tại sao/Như thế nào".
+* **GIỚI HẠN ĐỘ DÀI:** Mỗi dòng tối đa 10-12 từ. Chỉ lấy danh danh từ và động từ chính.
+* **NHIỆM VỤ:** GĐ1 chỉ là "Lập bản đồ". Mọi chi tiết "Vét cạn dữ liệu" sẽ được xử lý ở GĐ3.
+
+### 2.3 Template GĐ1 (Bắt buộc)
 [TÊN TÀI LIỆU] - LOGICAL OUTLINE
 I. [CHỦ ĐỀ LỚN]
-   0. [TỔNG QUAN]: [Định nghĩa/Phân loại/Nguyên lý chung]
+   0. [TỔNG QUAN]: [Định nghĩa ngắn]
    1. [Bệnh/Thuốc A]
-      i. [Tổng quan Bệnh A]: [Định nghĩa/Dịch tễ]
+      i. [Tổng quan Bệnh A]: [Định nghĩa]
       a. [Cơ chế bệnh sinh]: [Các ý chính]
-      b. [Triệu chứng lâm sàng]: [Cơ năng & Thực thể]
-      c. [Điều trị - Thuốc X]: [Chỉ định, Liều, Lưu ý]
+      b. [Triệu chứng lâm sàng]: [Tóm tắt triệu chứng]
+      c. [Điều trị - Thuốc X]: [Liều lượng, lưu ý chính]
 ...
-(Hệ thống sẽ tự động xử lý toàn bộ outline để vào GĐ2.)
+(Hệ thống sẽ dựa vào dàn ý tinh gọn này để mở rộng thẻ chi tiết ở GĐ3.)
 
 ---
 
