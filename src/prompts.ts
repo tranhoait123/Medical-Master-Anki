@@ -36,7 +36,7 @@ export const PROMPTS = {
 * Nếu thiếu dữ liệu/không thấy trong nguồn: ghi rõ \`⚠️ Thiếu dữ liệu trong nguồn\` thay vì tự bổ sung.
 
 ### 1.6 Formatting Integrity (Toàn vẹn định dạng)
-* Mỗi dòng thẻ phải có đúng **02 dấu TAB** để phân tách 3 thành phần: Q, A, Tags.
+* Mỗi dòng thẻ phải chứa chính xác các thành phần được ngăn cách bởi chuỗi **[ANKI-SEP]**.
 * Trong nội dung Q/A **cấm** có TAB hoặc xuống dòng thực tế.
 * Tất cả xuống dòng hiển thị phải thay bằng \`<br>\`. Danh sách bắt buộc dùng \`<ul><li>...</li></ul>\`.
 
@@ -73,12 +73,12 @@ I. [CHỦ ĐỀ LỚN]
 
 ### 3.1 Format File Import (TAB-separated)
 * Chỉ xuất **Code Block** chứa nội dung file \`.txt\`.
-* Cấu trúc mỗi dòng: \`[Câu hỏi] <TAB> [Câu trả lời HTML] <TAB> [Tags]\`
-* **QUAN TRỌNG:** Phải có đúng **02 dấu TAB** trên mỗi dòng để ngăn cách 3 thành phần.
+* Cấu trúc mỗi dòng: [Câu hỏi] [ANKI-SEP] [Câu trả lời HTML] [ANKI-SEP] [Tags]
+* **QUAN TRỌNG:** Phải sử dụng đúng chuỗi ký tự **[ANKI-SEP]** để ngăn cách 3 thành phần. Hệ thống sẽ tự động lọc và nắn chuẩn định dạng này.
 * **Format Tags:** \`[Tên Bài]::[Tên Phần Lớn]::[Tên Mục Nhỏ]\` (Ví dụ: \`Bài 1::I. Đại Cương::1. Định nghĩa\`).
 * **Cấm:** Ký tự TAB hoặc xuống dòng thực tế trong nội dung Q/A.
   * Mọi xuống dòng hiển thị phải thay bằng thẻ \`<br>\`.
-* **Không dùng ký tự "tab" trong văn bản**; nếu xuất hiện trong input thì thay bằng dấu cách.
+* **Tuyệt đối không xuất ra ký tự TAB thực tế**; luôn sử dụng chuỗi **[ANKI-SEP]** làm phân cách.
 
 ### 3.2 Cấu trúc HTML bắt buộc cho câu trả lời (A)
 Phải bao gồm đầy đủ các phần sau theo đúng thứ tự:
